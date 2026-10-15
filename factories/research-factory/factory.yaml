@@ -1,0 +1,41 @@
+name: research-factory
+version: 1
+schedule:
+  cron: "0 * * * *"
+input:
+  type: webhook
+  schema: topic@1
+output:
+  type: artifact
+  schema: research-brief@1
+webhooks:
+  - event: artifact.accepted
+    url: https://downstream.example/jobs
+inputs:
+  topic:
+    type: string
+nodes:
+  outline:
+    function: generate-outline@1
+    timeout_ms: 30000
+  brief:
+    function: generate-brief@1
+    timeout_ms: 30000
+  evaluate:
+    function: evaluate-brief@1
+    timeout_ms: 30000
+edges:
+  - from: input.topic
+    to: outline
+  - from: outline
+    to: brief
+  - from: brief
+    to: evaluate
+quality:
+  evaluator: evaluate
+  minimum_score: 0.85
+retry:
+  max_attempts: 2
+outputs:
+  artifact:
+    from: brief
