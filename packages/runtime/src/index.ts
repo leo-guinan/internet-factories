@@ -35,7 +35,7 @@ export function envelopeForArtifact(artifact: Artifact, schema: string, quality:
   if (errors.length) throw new Error(`Invalid artifact envelope: ${errors.join(", ")}`);
   return envelope;
 }
-export interface FactoryRun { id: string; factoryId: string; factoryVersion: string; status: RunStatus; startedAt?: string; finishedAt?: string; totalCostUsd: number; totalLatencyMs: number; qualityScore?: number; output?: unknown; nodeRuns: NodeRun[]; artifacts: Artifact[]; }
+export interface FactoryRun { id: string; factoryId: string; factoryVersion: string; status: RunStatus; startedAt?: string; finishedAt?: string; totalCostUsd: number; totalLatencyMs: number; reusedNodeRuns: number; recoveryCostAvoidedUsd: number; recoveryCostUsd: number; qualityScore?: number; output?: unknown; nodeRuns: NodeRun[]; artifacts: Artifact[]; }
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
@@ -49,7 +49,7 @@ const hashOutput = sha256Of;
 
 export async function executeFactory(spec: FactorySpec, functions: Record<string, FactoryFunction>, input: unknown, opts: { runId?: string; quality?: (output: unknown) => number; parents?: ArtifactReference[]; executionKeyPrefix?: string; resumeNodeRuns?: NodeRun[]; onNodeRun?: (run: FactoryRun) => void } = {}): Promise<FactoryRun> {
   const prior = opts.resumeNodeRuns ?? [];
-  const run: FactoryRun = { id: opts.runId ?? id("run"), factoryId: spec.id, factoryVersion: spec.version, status: "running", startedAt: now(), totalCostUsd: prior.reduce((sum, node) => sum + node.costUsd, 0), totalLatencyMs: prior.reduce((sum, node) => sum + (node.latencyMs ?? 0), 0), nodeRuns: [...prior], artifacts: [] };
+  const run: FactoryRun = { id: opts.runId ?? id("run"), factoryId: spec.id, factoryVersion: spec.version, status: "running", startedAt: now(), totalCostUsd: prior.reduce((sum, node) => sum + node.costUsd, 0), totalLatencyMs: prior.reduce((sum, node) => sum + (node.latencyMs ?? 0), 0), reusedNodeRuns: 0, recoveryCostAvoidedUsd: 0, recoveryCostUsd: 0, nodeRuns: [...prior], artifacts: [] };
   const outputs = new Map<string, unknown>();
   try {
     for (const node of spec.nodes) {
@@ -57,14 +57,16 @@ export async function executeFactory(spec: FactorySpec, functions: Record<string
       const previous = prior.filter((attempt) => attempt.nodeId === node.id);
       const maxAttempts = node.maxAttempts ?? 1;
       const priorCompleted = previous.find((attempt) => attempt.status === "completed" && attempt.functionId === node.functionId && attempt.functionVersion === node.functionVersion);
-      if (priorCompleted && priorCompleted.inputHash === hashOutput(nodeInput) && priorCompleted.output !== undefined) {
+      if (priorCompleted && priorCompleted.inputHash === hashOutput(nodeInput) && priorCompleted.output !== undefined && priorCompleted.outputHash === hashOutput(priorCompleted.output)) {
         outputs.set(node.id, priorCompleted.output);
         priorCompleted.reused = true;
+        run.reusedNodeRuns += 1;
+        run.recoveryCostAvoidedUsd += priorCompleted.costUsd;
         opts.onNodeRun?.(run);
         continue;
       }
       let completed = false;
-      for (let attempt = previous.reduce((max, item) => Math.max(max, item.attempt), 0) + 1; attempt <= maxAttempts + previous.length && !completed; attempt++) {
+      for (let attempt = previous.reduce((max, item) => Math.max(max, item.attempt), 0) + 1; attempt <= maxAttempts && !completed; attempt++) {
         const started = Date.now();
         const nodeRun: NodeRun = { id: id("nod"), executionId: id("exe"), idempotencyKey: `${opts.executionKeyPrefix ?? run.id}:${node.id}:${attempt}`, factoryRunId: run.id, nodeId: node.id, functionId: node.functionId, functionVersion: node.functionVersion, attempt, status: "running", startedAt: now(), costUsd: 0, inputHash: hashOutput(nodeInput) };
         run.nodeRuns.push(nodeRun);
@@ -73,7 +75,7 @@ export async function executeFactory(spec: FactorySpec, functions: Record<string
           const fn = functions[node.functionId];
           if (!fn) throw new Error(`Function not registered: ${node.functionId}`);
           const result = await fn.execute(nodeInput, { factoryId: spec.id, factoryVersion: spec.version, factoryRunId: run.id, nodeId: node.id, functionId: node.functionId, functionVersion: node.functionVersion, attempt, startedAt: nodeRun.startedAt, executionId: nodeRun.executionId, idempotencyKey: nodeRun.idempotencyKey });
-          nodeRun.status = "completed"; nodeRun.finishedAt = now(); nodeRun.latencyMs = Date.now() - started; nodeRun.costUsd = result.costUsd ?? 0; nodeRun.output = result.output; nodeRun.outputHash = hashOutput(result.output); run.totalCostUsd += nodeRun.costUsd; run.totalLatencyMs += nodeRun.latencyMs; outputs.set(node.id, result.output); completed = true;
+          nodeRun.status = "completed"; nodeRun.finishedAt = now(); nodeRun.latencyMs = Date.now() - started; nodeRun.costUsd = result.costUsd ?? 0; nodeRun.output = result.output; nodeRun.outputHash = hashOutput(result.output); run.totalCostUsd += nodeRun.costUsd; run.totalLatencyMs += nodeRun.latencyMs; if (prior.length) run.recoveryCostUsd += nodeRun.costUsd; outputs.set(node.id, result.output); completed = true;
           opts.onNodeRun?.(run);
         } catch (error) {
           nodeRun.status = "failed"; nodeRun.finishedAt = now(); nodeRun.latencyMs = Date.now() - started; nodeRun.error = { type: error instanceof Error ? error.constructor.name : "UnknownError", message: error instanceof Error ? error.message : String(error) }; run.totalLatencyMs += nodeRun.latencyMs;

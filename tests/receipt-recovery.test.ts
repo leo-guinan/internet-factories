@@ -20,4 +20,7 @@ test("completed node receipts are reused during recovery", async () => {
   assert.equal(recovered.nodeRuns[0].status, "completed");
   assert.equal(recovered.output, "prepared-done");
   assert.equal(recovered.nodeRuns.filter((node) => node.reused).length, 2);
+  assert.equal(recovered.reusedNodeRuns, 2);
+  assert.ok(Math.abs(recovered.recoveryCostAvoidedUsd - 0.3) < 1e-9);
+  assert.equal(recovered.recoveryCostUsd, 0);
 });
