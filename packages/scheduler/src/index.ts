@@ -5,7 +5,7 @@ function intervalMs(cron: string): number {
   const fields = cron.trim().split(/\s+/);
   if (fields.length !== 5 || fields[2] !== "*" || fields[3] !== "*" || fields[4] !== "*") throw new Error(`Unsupported cron expression: ${cron}`);
   if (fields[0] === "*") return 60_000;
-  if (fields[0] === "0") return 3_600_000;
+  if (fields[0] === "0" && fields[1] === "*") return 3_600_000;
   const match = /^\/(\d+)$/.exec(fields[0].replace("*", ""));
   if (match && Number(match[1]) > 0) return Number(match[1]) * 60_000;
   throw new Error(`Unsupported cron expression: ${cron}`);

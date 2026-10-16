@@ -21,3 +21,11 @@ test("cron scheduler supports five-minute intervals", async () => {
   await scheduler.tick(new Date("2026-10-15T12:05:00.000Z"));
   assert.deepEqual(jobs, ["cron:fast:2026-10-15T12:00:00.000Z", "cron:fast:2026-10-15T12:05:00.000Z"]);
 });
+
+test("cron scheduler rejects unsupported daily hour syntax instead of changing its meaning", () => {
+  const scheduler = createCronScheduler(async () => undefined);
+  assert.throws(
+    () => scheduler.add({ id: "daily", cron: "0 3 * * *", input: {}, nextFireAt: "2026-10-15T03:00:00.000Z" }),
+    /Unsupported cron expression/
+  );
+});
