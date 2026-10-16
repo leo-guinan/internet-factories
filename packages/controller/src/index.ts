@@ -24,6 +24,8 @@ export interface ControlAction { type: keyof ObservedFactoryState; adjustment: n
 export interface ControlPolicy { maxAdjustment?: number; }
 export interface ActuatorSpec { id: string; variable: string; kind: "number" | "choice"; value: number | string; min?: number; max?: number; step?: number; options?: string[]; addresses: Array<keyof ObservedFactoryState>; effects: Partial<Record<keyof ObservedFactoryState, -1 | 0 | 1>>; }
 export interface ActuatorAction { actuatorId: string; variable: string; from: number | string; to: number | string; metric: keyof ObservedFactoryState; reason: string; }
+export interface ObservationSnapshot { state: ObservedFactoryState; sampleCount: number; windowSize: number; confidence: number; observedAt?: string; }
+export interface ObservationWindowOptions { alpha?: number; maxSamples?: number; minSamplesForConfidence?: number; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
@@ -103,4 +105,27 @@ export function chooseActuatorActions(assessment: EnvelopeAssessment, actuators:
     usedActuators.add(actuator.id);
   }
   return actions;
+}
+
+export function createObservationWindow(options: ObservationWindowOptions = {}) {
+  const alpha = options.alpha ?? 0.25;
+  const maxSamples = options.maxSamples ?? 100;
+  const minSamplesForConfidence = options.minSamplesForConfidence ?? 10;
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha > 1) throw new Error("alpha must be greater than 0 and no greater than 1");
+  if (!Number.isInteger(maxSamples) || maxSamples < 1) throw new Error("maxSamples must be a positive integer");
+  if (!Number.isInteger(minSamplesForConfidence) || minSamplesForConfidence < 1) throw new Error("minSamplesForConfidence must be a positive integer");
+  const samples: Array<{ state: ObservedFactoryState; observedAt?: string }> = [];
+  let smoothed: ObservedFactoryState | undefined;
+  let sampleCount = 0;
+  const snapshot = (): ObservationSnapshot | undefined => smoothed ? { state: { ...smoothed }, sampleCount, windowSize: samples.length, confidence: Math.min(1, sampleCount / minSamplesForConfidence), observedAt: samples.at(-1)?.observedAt } : undefined;
+  return {
+    add(state: ObservedFactoryState, observedAt?: string) {
+      smoothed = smoothed ? Object.fromEntries(Object.keys(smoothed).map((key) => [key, smoothed![key as keyof ObservedFactoryState] + alpha * (state[key as keyof ObservedFactoryState] - smoothed![key as keyof ObservedFactoryState])])) as unknown as ObservedFactoryState : { ...state };
+      samples.push({ state: { ...state }, observedAt });
+      if (samples.length > maxSamples) samples.shift();
+      sampleCount += 1;
+      return snapshot()!;
+    },
+    snapshot
+  };
 }
