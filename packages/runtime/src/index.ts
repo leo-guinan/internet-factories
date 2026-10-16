@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from "node:crypto";
+
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "rejected";
 export type NodeStatus = "running" | "completed" | "failed" | "skipped";
 
@@ -12,10 +14,11 @@ export interface NodeSpec { id: string; functionId: string; functionVersion: str
 export interface FactorySpec { id: string; version: string; nodes: NodeSpec[]; minimumQuality?: number; }
 export interface NodeRun { id: string; factoryRunId: string; nodeId: string; attempt: number; status: NodeStatus; startedAt: string; finishedAt?: string; costUsd: number; latencyMs?: number; error?: { type: string; message: string }; }
 export interface ArtifactReference { artifact_id: string; factory_id: string; run_id: string; schema: string; }
-export interface Artifact { id: string; factoryId: string; factoryRunId: string; type: string; uri: string; sha256: string; createdAt: string; parents?: ArtifactReference[]; }
+export interface ArtifactEconomics { local_cost: number; upstream_cost: number; total_cost: number; }
+export interface Artifact { id: string; factoryId: string; factoryRunId: string; type: string; uri: string; sha256: string; createdAt: string; parents?: ArtifactReference[]; economics?: ArtifactEconomics; }
 export interface InputPort { type: "webhook" | "api"; schema: string; }
 export interface OutputPort { type: "artifact"; schema: string; }
-export interface ArtifactEnvelope { artifact_id: string; factory_id: string; run_id: string; type: string; uri: string; quality?: number; cost: number; created_at: string; schema: string; parents?: ArtifactReference[]; }
+export interface ArtifactEnvelope { artifact_id: string; factory_id: string; run_id: string; type: string; uri: string; quality?: number; cost: number; economics?: ArtifactEconomics; created_at: string; schema: string; parents?: ArtifactReference[]; }
 export interface WebhookSubscription { event: "artifact.accepted"; url: string; }
 export interface FactoryNetworkContract { input: InputPort; output: OutputPort; webhooks?: WebhookSubscription[]; }
 export function validateArtifactEnvelope(envelope: ArtifactEnvelope): string[] {
@@ -23,10 +26,11 @@ export function validateArtifactEnvelope(envelope: ArtifactEnvelope): string[] {
   for (const field of ["artifact_id", "factory_id", "run_id", "type", "uri", "created_at", "schema"] as const) if (!envelope[field]) errors.push(`${field} is required`);
   if (!Number.isFinite(envelope.cost) || envelope.cost < 0) errors.push("cost must be a non-negative number");
   if (envelope.quality !== undefined && (envelope.quality < 0 || envelope.quality > 1)) errors.push("quality must be between 0 and 1");
+  if (envelope.economics && (envelope.economics.local_cost < 0 || envelope.economics.upstream_cost < 0 || envelope.economics.total_cost < 0 || envelope.economics.total_cost !== envelope.economics.local_cost + envelope.economics.upstream_cost)) errors.push("economics must be non-negative and reconcile");
   return errors;
 }
 export function envelopeForArtifact(artifact: Artifact, schema: string, quality: number | undefined, cost: number): ArtifactEnvelope {
-  const envelope: ArtifactEnvelope = { artifact_id: artifact.id, factory_id: artifact.factoryId, run_id: artifact.factoryRunId, type: artifact.type, uri: artifact.uri, quality, cost, created_at: artifact.createdAt, schema, parents: artifact.parents };
+  const envelope: ArtifactEnvelope = { artifact_id: artifact.id, factory_id: artifact.factoryId, run_id: artifact.factoryRunId, type: artifact.type, uri: artifact.uri, quality, cost, economics: artifact.economics, created_at: artifact.createdAt, schema, parents: artifact.parents };
   const errors = validateArtifactEnvelope(envelope);
   if (errors.length) throw new Error(`Invalid artifact envelope: ${errors.join(", ")}`);
   return envelope;
@@ -34,10 +38,11 @@ export function envelopeForArtifact(artifact: Artifact, schema: string, quality:
 export interface FactoryRun { id: string; factoryId: string; factoryVersion: string; status: RunStatus; startedAt?: string; finishedAt?: string; totalCostUsd: number; totalLatencyMs: number; qualityScore?: number; output?: unknown; nodeRuns: NodeRun[]; artifacts: Artifact[]; }
 
 const now = () => new Date().toISOString();
-const id = (prefix: string, n: number) => `${prefix}_${n.toString(36).padStart(8, "0")}`;
+const id = (prefix: string) => `${prefix}_${randomUUID()}`;
+const hashOutput = (output: unknown) => createHash("sha256").update(JSON.stringify(output)).digest("hex");
 
 export async function executeFactory(spec: FactorySpec, functions: Record<string, FactoryFunction>, input: unknown, opts: { runId?: string; quality?: (output: unknown) => number; parents?: ArtifactReference[] } = {}): Promise<FactoryRun> {
-  const run: FactoryRun = { id: opts.runId ?? id("run", Date.now()), factoryId: spec.id, factoryVersion: spec.version, status: "running", startedAt: now(), totalCostUsd: 0, totalLatencyMs: 0, nodeRuns: [], artifacts: [] };
+  const run: FactoryRun = { id: opts.runId ?? id("run"), factoryId: spec.id, factoryVersion: spec.version, status: "running", startedAt: now(), totalCostUsd: 0, totalLatencyMs: 0, nodeRuns: [], artifacts: [] };
   const outputs = new Map<string, unknown>();
   try {
     for (const node of spec.nodes) {
@@ -46,7 +51,7 @@ export async function executeFactory(spec: FactorySpec, functions: Record<string
       let completed = false;
       for (let attempt = 1; attempt <= maxAttempts && !completed; attempt++) {
         const started = Date.now();
-        const nodeRun: NodeRun = { id: id("nod", run.nodeRuns.length + 1), factoryRunId: run.id, nodeId: node.id, attempt, status: "running", startedAt: now(), costUsd: 0 };
+        const nodeRun: NodeRun = { id: id("nod"), factoryRunId: run.id, nodeId: node.id, attempt, status: "running", startedAt: now(), costUsd: 0 };
         run.nodeRuns.push(nodeRun);
         try {
           const fn = functions[node.functionId];
@@ -64,7 +69,7 @@ export async function executeFactory(spec: FactorySpec, functions: Record<string
     run.qualityScore = opts.quality?.(output) ?? 1;
     const accepted = run.qualityScore >= (spec.minimumQuality ?? 0);
     run.status = accepted ? "completed" : "rejected";
-    if (accepted) run.artifacts.push({ id: id("art", 1), factoryId: spec.id, factoryRunId: run.id, type: "application/json", uri: `memory://${run.id}/output.json`, sha256: "unhashed-local-output", createdAt: now(), parents: opts.parents });
+    if (accepted) run.artifacts.push({ id: id("art"), factoryId: spec.id, factoryRunId: run.id, type: "application/json", uri: `memory://${run.id}/output.json`, sha256: hashOutput(output), createdAt: now(), parents: opts.parents });
     run.finishedAt = now();
     return run;
   } catch (error) { run.status = "failed"; run.finishedAt = now(); throw error; }

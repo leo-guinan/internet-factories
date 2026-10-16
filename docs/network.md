@@ -22,6 +22,18 @@ The v0.1 network contract is deliberately reference-based. A downstream factory 
 }
 ```
 
+The envelope also carries reconciled economics:
+
+```json
+"economics": {
+  "local_cost": 0.07,
+  "upstream_cost": 0.11,
+  "total_cost": 0.18
+}
+```
+
+Artifact IDs, run IDs, node-run IDs, and outbox IDs are UUID-backed. Artifact payloads are SHA-256 hashed before publication. Parent references preserve the production DAG across network boundaries.
+
 A producer does not name or depend on consumers. Consumers subscribe to `artifact.accepted` and submit the envelope to their own `POST /jobs` input port.
 
 Initial API contract:

@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { executeFactory, envelopeForArtifact, type ArtifactReference, type ArtifactEnvelope, type FactoryFunction, type FactoryNetworkContract, type FactoryRun, type FactorySpec, type WebhookSubscription } from "../../../packages/runtime/src/index.js";
 
 export interface WebhookOutboxEntry { id: string; event: "artifact.accepted"; url: string; idempotencyKey: string; envelope: ArtifactEnvelope; status: "pending" | "delivered" | "failed"; attempts: number; lastError?: string; }
-export interface FactoryServerOptions { spec: FactorySpec; functions: Record<string, FactoryFunction>; outputSchema: string; quality?: (output: unknown) => number; webhooks?: WebhookSubscription[]; }
+export interface FactoryServerOptions { spec: FactorySpec; functions: Record<string, FactoryFunction>; outputSchema: string; inputSchemas?: string[]; quality?: (output: unknown) => number; webhooks?: WebhookSubscription[]; }
 export interface FactoryServer {
   readonly contract: FactoryNetworkContract;
   readonly outbox: WebhookOutboxEntry[];
@@ -27,7 +28,6 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
   const outbox: WebhookOutboxEntry[] = [];
   let server: Server | undefined;
   let address = "";
-  let nextOutboxId = 1;
   const contract: FactoryNetworkContract = { input: { type: "api", schema: "job@1" }, output: { type: "artifact", schema: options.outputSchema }, webhooks: options.webhooks ?? [] };
 
   const submit = async (body: JobBody, requestId?: string): Promise<{ run: FactoryRun; duplicate: boolean }> => {
@@ -43,11 +43,13 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
     if (key) idempotency.set(key, run);
     if (run.status === "completed" && run.artifacts[0]) {
       const artifact = run.artifacts[0];
+      const upstreamCost = body.input && typeof body.input === "object" && "economics" in body.input ? Number(((body.input as { economics?: { total_cost?: number } }).economics?.total_cost) ?? 0) : 0;
+      artifact.economics = { local_cost: run.totalCostUsd, upstream_cost: upstreamCost, total_cost: run.totalCostUsd + upstreamCost };
       artifact.uri = `${address}/artifacts/${artifact.id}/content`;
       contents.set(artifact.id, run.output);
-      const envelope = envelopeForArtifact(artifact, options.outputSchema, run.qualityScore, run.totalCostUsd);
+      const envelope = envelopeForArtifact(artifact, options.outputSchema, run.qualityScore, artifact.economics.total_cost);
       artifacts.set(envelope.artifact_id, envelope);
-      for (const webhook of options.webhooks ?? []) outbox.push({ id: `out_${String(nextOutboxId++).padStart(6, "0")}`, event: "artifact.accepted", url: webhook.url, idempotencyKey: `artifact.accepted:${envelope.artifact_id}:${webhook.url}`, envelope, status: "pending", attempts: 0 });
+      for (const webhook of options.webhooks ?? []) outbox.push({ id: `out_${randomUUID()}`, event: "artifact.accepted", url: webhook.url, idempotencyKey: `artifact.accepted:${envelope.artifact_id}:${webhook.url}`, envelope, status: "pending", attempts: 0 });
     }
     return { run, duplicate: false };
   };
@@ -57,6 +59,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
       const parts = pathParts(request);
       if (request.method === "POST" && parts.length === 1 && parts[0] === "jobs") {
         const body = await readJson(request) as JobBody;
+        if (options.inputSchemas && body.input && typeof body.input === "object" && "schema" in body.input && !options.inputSchemas.includes(String((body.input as { schema: unknown }).schema))) return json(response, 422, { error: "input_schema_not_supported" });
         const result = await submit(body, request.headers["idempotency-key"]?.toString());
         return json(response, result.duplicate ? 200 : 201, { run_id: result.run.id, status: result.run.status, factory_id: result.run.factoryId });
       }
