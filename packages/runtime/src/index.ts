@@ -6,7 +6,7 @@ export type NodeStatus = "running" | "completed" | "failed" | "skipped";
 export interface ExecutionContext {
   factoryId: string; factoryVersion: string; factoryRunId: string;
   nodeId: string; functionId: string; functionVersion: string;
-  attempt: number; startedAt: string;
+  attempt: number; startedAt: string; executionId: string; idempotencyKey: string;
 }
 export interface FunctionResult { output: unknown; costUsd?: number; metadata?: Record<string, unknown>; }
 export interface FactoryFunction { execute(input: unknown, context: ExecutionContext): Promise<FunctionResult>; }
@@ -63,7 +63,7 @@ export async function executeFactory(spec: FactorySpec, functions: Record<string
         try {
           const fn = functions[node.functionId];
           if (!fn) throw new Error(`Function not registered: ${node.functionId}`);
-          const result = await fn.execute(nodeInput, { factoryId: spec.id, factoryVersion: spec.version, factoryRunId: run.id, nodeId: node.id, functionId: node.functionId, functionVersion: node.functionVersion, attempt, startedAt: nodeRun.startedAt });
+          const result = await fn.execute(nodeInput, { factoryId: spec.id, factoryVersion: spec.version, factoryRunId: run.id, nodeId: node.id, functionId: node.functionId, functionVersion: node.functionVersion, attempt, startedAt: nodeRun.startedAt, executionId: nodeRun.executionId, idempotencyKey: nodeRun.idempotencyKey });
           nodeRun.status = "completed"; nodeRun.finishedAt = now(); nodeRun.latencyMs = Date.now() - started; nodeRun.costUsd = result.costUsd ?? 0; run.totalCostUsd += nodeRun.costUsd; run.totalLatencyMs += nodeRun.latencyMs; outputs.set(node.id, result.output); completed = true;
           opts.onNodeRun?.(run);
         } catch (error) {
