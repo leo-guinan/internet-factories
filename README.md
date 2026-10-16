@@ -21,7 +21,7 @@ A factory is now also a network endpoint: API/webhook input, measurable producti
 The network envelope carries identity and economics while payloads remain in artifact storage:
 
 ```json
-{"artifact_id":"art_...","factory_id":"fac_...","run_id":"run_...","type":"application/json","uri":"s3://...","quality":0.93,"cost":0.18,"created_at":"...","schema":"insight-bundle@1"}
+{"artifact_id":"art_...","factory_id":"fac_...","run_id":"run_...","type":"application/json","uri":"s3://...","sha256":"...","quality":0.93,"cost":0.18,"created_at":"...","schema":"insight-bundle@1"}
 ```
 
 ## Network surface

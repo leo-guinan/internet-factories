@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { executeFactory, envelopeForArtifact, type ArtifactReference, type ArtifactEnvelope, type FactoryFunction, type FactoryNetworkContract, type FactoryRun, type FactorySpec, type WebhookSubscription } from "../../../packages/runtime/src/index.js";
+import { executeFactory, envelopeForArtifact, sha256Of, type ArtifactReference, type ArtifactEnvelope, type FactoryFunction, type FactoryNetworkContract, type FactoryRun, type FactorySpec, type WebhookSubscription } from "../../../packages/runtime/src/index.js";
 
 export interface WebhookOutboxEntry { id: string; event: "artifact.accepted"; url: string; idempotencyKey: string; envelope: ArtifactEnvelope; status: "pending" | "delivered" | "failed"; attempts: number; lastError?: string; }
 export interface FactoryServerOptions { spec: FactorySpec; functions: Record<string, FactoryFunction>; outputSchema: string; inputSchemas?: string[]; quality?: (output: unknown) => number; webhooks?: WebhookSubscription[]; }
@@ -18,6 +18,14 @@ export interface FactoryServer {
 type JobBody = { input?: unknown; idempotency_key?: string };
 const json = (response: ServerResponse, status: number, body: unknown) => { response.statusCode = status; response.setHeader("content-type", "application/json"); response.end(JSON.stringify(body)); };
 async function readJson(request: IncomingMessage): Promise<unknown> { let raw = ""; for await (const chunk of request) raw += chunk; return raw ? JSON.parse(raw) : {}; }
+async function verifyInputArtifact(input: unknown): Promise<string | undefined> {
+  if (!input || typeof input !== "object" || !("uri" in input) || !("sha256" in input)) return undefined;
+  const envelope = input as { uri: string; sha256: string };
+  const response = await fetch(envelope.uri);
+  if (!response.ok) return "artifact_content_unavailable";
+  const body = await response.json() as { content: unknown };
+  return sha256Of(body.content) === envelope.sha256 ? undefined : "artifact_hash_mismatch";
+}
 function pathParts(request: IncomingMessage): string[] { return new URL(request.url ?? "/", "http://localhost").pathname.split("/").filter(Boolean); }
 
 export function createFactoryServer(options: FactoryServerOptions): FactoryServer {
@@ -59,6 +67,8 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
       const parts = pathParts(request);
       if (request.method === "POST" && parts.length === 1 && parts[0] === "jobs") {
         const body = await readJson(request) as JobBody;
+        const hashError = await verifyInputArtifact(body.input);
+        if (hashError) return json(response, 422, { error: hashError });
         if (options.inputSchemas && body.input && typeof body.input === "object" && "schema" in body.input && !options.inputSchemas.includes(String((body.input as { schema: unknown }).schema))) return json(response, 422, { error: "input_schema_not_supported" });
         const result = await submit(body, request.headers["idempotency-key"]?.toString());
         return json(response, result.duplicate ? 200 : 201, { run_id: result.run.id, status: result.run.status, factory_id: result.run.factoryId });

@@ -18,19 +18,19 @@ export interface ArtifactEconomics { local_cost: number; upstream_cost: number; 
 export interface Artifact { id: string; factoryId: string; factoryRunId: string; type: string; uri: string; sha256: string; createdAt: string; parents?: ArtifactReference[]; economics?: ArtifactEconomics; }
 export interface InputPort { type: "webhook" | "api"; schema: string; }
 export interface OutputPort { type: "artifact"; schema: string; }
-export interface ArtifactEnvelope { artifact_id: string; factory_id: string; run_id: string; type: string; uri: string; quality?: number; cost: number; economics?: ArtifactEconomics; created_at: string; schema: string; parents?: ArtifactReference[]; }
+export interface ArtifactEnvelope { artifact_id: string; factory_id: string; run_id: string; type: string; uri: string; sha256: string; quality?: number; cost: number; economics?: ArtifactEconomics; created_at: string; schema: string; parents?: ArtifactReference[]; }
 export interface WebhookSubscription { event: "artifact.accepted"; url: string; }
 export interface FactoryNetworkContract { input: InputPort; output: OutputPort; webhooks?: WebhookSubscription[]; }
 export function validateArtifactEnvelope(envelope: ArtifactEnvelope): string[] {
   const errors: string[] = [];
-  for (const field of ["artifact_id", "factory_id", "run_id", "type", "uri", "created_at", "schema"] as const) if (!envelope[field]) errors.push(`${field} is required`);
+  for (const field of ["artifact_id", "factory_id", "run_id", "type", "uri", "sha256", "created_at", "schema"] as const) if (!envelope[field]) errors.push(`${field} is required`);
   if (!Number.isFinite(envelope.cost) || envelope.cost < 0) errors.push("cost must be a non-negative number");
   if (envelope.quality !== undefined && (envelope.quality < 0 || envelope.quality > 1)) errors.push("quality must be between 0 and 1");
   if (envelope.economics && (envelope.economics.local_cost < 0 || envelope.economics.upstream_cost < 0 || envelope.economics.total_cost < 0 || envelope.economics.total_cost !== envelope.economics.local_cost + envelope.economics.upstream_cost)) errors.push("economics must be non-negative and reconcile");
   return errors;
 }
 export function envelopeForArtifact(artifact: Artifact, schema: string, quality: number | undefined, cost: number): ArtifactEnvelope {
-  const envelope: ArtifactEnvelope = { artifact_id: artifact.id, factory_id: artifact.factoryId, run_id: artifact.factoryRunId, type: artifact.type, uri: artifact.uri, quality, cost, economics: artifact.economics, created_at: artifact.createdAt, schema, parents: artifact.parents };
+  const envelope: ArtifactEnvelope = { artifact_id: artifact.id, factory_id: artifact.factoryId, run_id: artifact.factoryRunId, type: artifact.type, uri: artifact.uri, sha256: artifact.sha256, quality, cost, economics: artifact.economics, created_at: artifact.createdAt, schema, parents: artifact.parents };
   const errors = validateArtifactEnvelope(envelope);
   if (errors.length) throw new Error(`Invalid artifact envelope: ${errors.join(", ")}`);
   return envelope;
@@ -39,7 +39,13 @@ export interface FactoryRun { id: string; factoryId: string; factoryVersion: str
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
-const hashOutput = (output: unknown) => createHash("sha256").update(JSON.stringify(output)).digest("hex");
+export function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+  return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${canonicalize((value as Record<string, unknown>)[key])}`).join(",")}}`;
+}
+export function sha256Of(value: unknown): string { return createHash("sha256").update(canonicalize(value)).digest("hex"); }
+const hashOutput = sha256Of;
 
 export async function executeFactory(spec: FactorySpec, functions: Record<string, FactoryFunction>, input: unknown, opts: { runId?: string; quality?: (output: unknown) => number; parents?: ArtifactReference[] } = {}): Promise<FactoryRun> {
   const run: FactoryRun = { id: opts.runId ?? id("run"), factoryId: spec.id, factoryVersion: spec.version, status: "running", startedAt: now(), totalCostUsd: 0, totalLatencyMs: 0, nodeRuns: [], artifacts: [] };

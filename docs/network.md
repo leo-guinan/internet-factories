@@ -15,6 +15,7 @@ The v0.1 network contract is deliberately reference-based. A downstream factory 
   "run_id": "run_...",
   "type": "application/json",
   "uri": "s3://internet-factories/...",
+  "sha256": "...",
   "quality": 0.93,
   "cost": 0.18,
   "created_at": "2026-10-15T12:00:00Z",

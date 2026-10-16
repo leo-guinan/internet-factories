@@ -35,6 +35,6 @@ test("artifact envelopes carry provenance, schema, quality, and cost", async () 
 
 test("artifact envelope rejects impossible quality and negative cost", async () => {
   const { validateArtifactEnvelope } = await import("../packages/runtime/src/index.js");
-  const errors = validateArtifactEnvelope({ artifact_id: "a", factory_id: "f", run_id: "r", type: "json", uri: "memory://a", quality: 1.2, cost: -1, created_at: "now", schema: "x@1" });
+  const errors = validateArtifactEnvelope({ artifact_id: "a", factory_id: "f", run_id: "r", type: "json", uri: "memory://a", sha256: "hash", quality: 1.2, cost: -1, created_at: "now", schema: "x@1" });
   assert.deepEqual(errors, ["cost must be a non-negative number", "quality must be between 0 and 1"]);
 });

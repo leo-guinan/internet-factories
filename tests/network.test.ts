@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createFactoryServer } from "../apps/api/src/server.js";
+import { sha256Of } from "../packages/runtime/src/index.js";
 
 test("two factories compose over HTTP by retrieving and transforming an artifact", async () => {
   const factoryB = createFactoryServer({
@@ -41,6 +42,7 @@ test("two factories compose over HTTP by retrieving and transforming an artifact
     assert.equal(downstreamEnvelope.parents?.length, 1);
     assert.equal(downstreamEnvelope.parents?.[0].artifact_id, factoryA.outbox[0].envelope.artifact_id);
     assert.equal(factoryA.outbox[0].envelope.economics?.total_cost, 0.11);
+    assert.equal(factoryA.outbox[0].envelope.sha256, sha256Of("hello world"));
     assert.equal(downstreamEnvelope.economics?.local_cost, 0.07);
     assert.equal(downstreamEnvelope.economics?.upstream_cost, 0.11);
     assert.equal(downstreamEnvelope.economics?.total_cost, 0.18);
