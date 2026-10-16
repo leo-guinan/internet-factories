@@ -70,13 +70,14 @@ export function chooseActuatorActions(assessment: EnvelopeAssessment, actuators:
   if (!Number.isInteger(maxActions) || maxActions < 0) throw new Error("maxActions must be a non-negative integer");
   if (!Number.isFinite(maxAdjustment) || maxAdjustment < 0) throw new Error("maxAdjustment must be a non-negative finite number");
   const actions: ActuatorAction[] = [];
+  const usedActuators = new Set<string>();
   for (const violation of assessment.violations) {
     if (actions.length >= maxActions) break;
     const actuator = actuators.find((candidate) => {
       const effect = candidate.effects[violation.metric];
       return candidate.addresses.includes(violation.metric) && effect !== undefined && effect !== 0;
     });
-    if (!actuator) continue;
+    if (!actuator || usedActuators.has(actuator.id)) continue;
     const effect = actuator.effects[violation.metric]!;
     const minimum = violation.metric === "quality" || violation.metric === "throughputPerHour" || violation.metric === "recoveryEfficiency";
     const desiredEffect = minimum ? 1 : -1;
@@ -99,6 +100,7 @@ export function chooseActuatorActions(assessment: EnvelopeAssessment, actuators:
     }
     const bound = minimum ? "minimum" : "maximum";
     actions.push({ actuatorId: actuator.id, variable: actuator.variable, from: actuator.value, to: next, metric: violation.metric, reason: `${violation.metric} is ${minimum ? "below" : "above"} its ${bound} by ${Math.abs(violation.error)}` });
+    usedActuators.add(actuator.id);
   }
   return actions;
 }

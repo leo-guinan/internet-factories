@@ -27,3 +27,9 @@ test("response effects choose a direction that can actually reduce the violation
   const actions = chooseActuatorActions(assessment, actuators);
   assert.deepEqual(actions.map(({ metric, from, to }) => ({ metric, from, to })), [{ metric: "latencyMs", from: 2, to: 3 }]);
 });
+
+test("one actuator is proposed once when it addresses multiple violations", () => {
+  const assessment = assessOperatingEnvelope(envelope, { quality: 1, costUsd: 0.2, latencyMs: 7000, throughputPerHour: 4, failureRate: 0, retryRate: 0, recoveryEfficiency: 0 });
+  const actions = chooseActuatorActions(assessment, actuators);
+  assert.equal(actions.filter((action) => action.actuatorId === "parallelism").length, 1);
+});
