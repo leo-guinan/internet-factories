@@ -48,4 +48,6 @@ Implemented locally: HTTP server, `POST /jobs` acceptance into a persisted queue
 
 Completed node receipts now retain input/output hashes and the output value for local recovery. Reuse requires the stored output to re-hash to its recorded `outputHash`, plus matching node/function/version/input hashes. Each receipt still exposes `executionId` and a stable per-job/node/attempt `idempotencyKey` through `ExecutionContext`, and the HTTP adapter forwards that key as `Idempotency-Key`. Recovery reports reused node count, avoided cost, and newly incurred recovery cost; lifetime attempt limits are not refilled by restart.
 
+The scheduler package is intentionally outside the runtime. It parses the supported v0.1 cron subset and submits only `(input, idempotencyKey)` to a job submitter. Cron therefore creates durable jobs without knowing factory functions, artifacts, or workers.
+
 Not implemented yet: durable database storage, authentication/signatures, delivery retry receipts beyond the in-memory outbox status, schema registry, and payload authorization.
