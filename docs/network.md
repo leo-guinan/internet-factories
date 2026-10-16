@@ -46,4 +46,6 @@ Initial API contract:
 
 Implemented locally: HTTP server, `POST /jobs` acceptance into a persisted queued job, recovery of queued/running jobs on restart, `GET /runs/:id`, `GET /artifacts/:id`, `GET /artifacts/:id/content`, file-backed run/artifact/content/outbox/idempotency persistence via `storagePath`, webhook outbox delivery, and idempotency-key deduplication.
 
+The runtime also emits durable-friendly node execution receipts with an `executionId` and stable per-job/node/attempt `idempotencyKey`. Node receipts are persisted through the job runner callback before and after function execution; recovery still replays the whole factory, so external side effects remain at-least-once until adapters consume these receipts.
+
 Not implemented yet: durable database storage, authentication/signatures, delivery retry receipts beyond the in-memory outbox status, schema registry, and payload authorization.

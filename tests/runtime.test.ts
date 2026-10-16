@@ -13,6 +13,8 @@ test("failed attempts remain visible while a retry can complete the run", async 
   assert.equal(run.nodeRuns[1].status, "completed");
   assert.equal(run.totalCostUsd, 0.12);
   assert.equal(run.artifacts.length, 1);
+  assert.ok(run.nodeRuns[0].executionId);
+  assert.match(run.nodeRuns[0].idempotencyKey, /^run_/);
 });
 
 test("quality rejection preserves work cost and produces no accepted artifact", async () => {

@@ -63,7 +63,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
   const contract: FactoryNetworkContract = { input: { type: "api", schema: "job@1" }, output: { type: "artifact", schema: options.outputSchema }, webhooks: options.webhooks ?? [] };
 
   const executeJob = async (job: JobRecord): Promise<FactoryRun> => {
-    job.status = "running"; job.attempts += 1; persist();
+    job.status = "running"; job.attempts += 1; job.runId ??= `run_${randomUUID()}`; persist();
     const body: JobBody = { input: job.input, idempotency_key: job.idempotencyKey };
     const parents: ArtifactReference[] = [];
     if (body.input && typeof body.input === "object" && "artifact_id" in body.input && "factory_id" in body.input && "run_id" in body.input && "schema" in body.input) {
@@ -71,7 +71,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
       parents.push({ artifact_id: input.artifact_id, factory_id: input.factory_id, run_id: input.run_id, schema: input.schema });
     }
     try {
-      const run = await executeFactory(options.spec, options.functions, body.input, { quality: options.quality, parents });
+      const run = await executeFactory(options.spec, options.functions, body.input, { runId: job.runId, quality: options.quality, parents, executionKeyPrefix: job.id, onNodeRun: (partial) => { runs.set(partial.id, partial); persist(); } });
       runs.set(run.id, run); job.runId = run.id; job.status = run.status === "failed" ? "failed" : "completed";
       if (job.idempotencyKey) idempotency.set(job.idempotencyKey, run);
       if (run.status === "completed" && run.artifacts[0]) {
@@ -133,7 +133,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
     contract,
     outbox,
     get url() { return address; },
-    async start() { server = createServer((request, response) => { void handler(request, response); }); await new Promise<void>((resolve) => server!.listen(options.port ?? 0, "127.0.0.1", () => { const info = server!.address(); if (info && typeof info !== "string") address = `http://127.0.0.1:${info.port}`; for (const artifact of artifacts.values()) artifact.uri = `${address}/artifacts/${artifact.artifact_id}/content`; for (const entry of outbox) entry.envelope.uri = `${address}/artifacts/${entry.envelope.artifact_id}/content`; for (const run of runs.values()) for (const artifact of run.artifacts) artifact.uri = `${address}/artifacts/${artifact.id}/content`; const recover = async () => { for (const job of jobs.values()) if (job.status === "queued" || job.status === "running") await executeJob(job); persist(); resolve(); }; void recover(); })); },
+    async start() { server = createServer((request, response) => { void handler(request, response); }); await new Promise<void>((resolve) => server!.listen(options.port ?? 0, "127.0.0.1", () => { const info = server!.address(); if (info && typeof info !== "string") address = `http://127.0.0.1:${info.port}`; for (const artifact of artifacts.values()) artifact.uri = `${address}/artifacts/${artifact.artifact_id}/content`; for (const entry of outbox) entry.envelope.uri = `${address}/artifacts/${entry.envelope.artifact_id}/content`; for (const run of runs.values()) for (const artifact of run.artifacts) artifact.uri = `${address}/artifacts/${artifact.id}/content`; const recover = async () => { for (const job of jobs.values()) if (job.status === "queued" || job.status === "running") { try { await executeJob(job); } catch { /* executeJob records the failed job; recovery continues */ } } persist(); resolve(); }; void recover(); })); },
     async close() { if (server) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve())); server = undefined; address = ""; },
     async flushWebhooks() { for (const entry of outbox.filter((item) => item.status !== "delivered")) { entry.attempts += 1; try { const response = await fetch(entry.url, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": entry.idempotencyKey }, body: JSON.stringify({ input: entry.envelope, idempotency_key: entry.idempotencyKey }) }); if (!response.ok) throw new Error(`HTTP ${response.status}`); entry.status = "delivered"; } catch (error) { entry.status = "failed"; entry.lastError = error instanceof Error ? error.message : String(error); } persist(); } },
     listRuns() { return [...runs.values()]; },

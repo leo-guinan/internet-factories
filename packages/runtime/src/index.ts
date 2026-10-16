@@ -12,7 +12,7 @@ export interface FunctionResult { output: unknown; costUsd?: number; metadata?: 
 export interface FactoryFunction { execute(input: unknown, context: ExecutionContext): Promise<FunctionResult>; }
 export interface NodeSpec { id: string; functionId: string; functionVersion: string; dependsOn?: string[]; maxAttempts?: number; }
 export interface FactorySpec { id: string; version: string; nodes: NodeSpec[]; minimumQuality?: number; }
-export interface NodeRun { id: string; factoryRunId: string; nodeId: string; attempt: number; status: NodeStatus; startedAt: string; finishedAt?: string; costUsd: number; latencyMs?: number; error?: { type: string; message: string }; }
+export interface NodeRun { id: string; executionId: string; idempotencyKey: string; factoryRunId: string; nodeId: string; attempt: number; status: NodeStatus; startedAt: string; finishedAt?: string; costUsd: number; latencyMs?: number; error?: { type: string; message: string }; }
 export interface ArtifactReference { artifact_id: string; factory_id: string; run_id: string; schema: string; }
 export interface ArtifactEconomics { local_cost: number; upstream_cost: number; total_cost: number; }
 export interface Artifact { id: string; factoryId: string; factoryRunId: string; type: string; uri: string; sha256: string; createdAt: string; parents?: ArtifactReference[]; economics?: ArtifactEconomics; }
@@ -47,7 +47,7 @@ export function canonicalize(value: unknown): string {
 export function sha256Of(value: unknown): string { return createHash("sha256").update(canonicalize(value)).digest("hex"); }
 const hashOutput = sha256Of;
 
-export async function executeFactory(spec: FactorySpec, functions: Record<string, FactoryFunction>, input: unknown, opts: { runId?: string; quality?: (output: unknown) => number; parents?: ArtifactReference[] } = {}): Promise<FactoryRun> {
+export async function executeFactory(spec: FactorySpec, functions: Record<string, FactoryFunction>, input: unknown, opts: { runId?: string; quality?: (output: unknown) => number; parents?: ArtifactReference[]; executionKeyPrefix?: string; onNodeRun?: (run: FactoryRun) => void } = {}): Promise<FactoryRun> {
   const run: FactoryRun = { id: opts.runId ?? id("run"), factoryId: spec.id, factoryVersion: spec.version, status: "running", startedAt: now(), totalCostUsd: 0, totalLatencyMs: 0, nodeRuns: [], artifacts: [] };
   const outputs = new Map<string, unknown>();
   try {
@@ -57,15 +57,18 @@ export async function executeFactory(spec: FactorySpec, functions: Record<string
       let completed = false;
       for (let attempt = 1; attempt <= maxAttempts && !completed; attempt++) {
         const started = Date.now();
-        const nodeRun: NodeRun = { id: id("nod"), factoryRunId: run.id, nodeId: node.id, attempt, status: "running", startedAt: now(), costUsd: 0 };
+        const nodeRun: NodeRun = { id: id("nod"), executionId: id("exe"), idempotencyKey: `${opts.executionKeyPrefix ?? run.id}:${node.id}:${attempt}`, factoryRunId: run.id, nodeId: node.id, attempt, status: "running", startedAt: now(), costUsd: 0 };
         run.nodeRuns.push(nodeRun);
+        opts.onNodeRun?.(run);
         try {
           const fn = functions[node.functionId];
           if (!fn) throw new Error(`Function not registered: ${node.functionId}`);
           const result = await fn.execute(nodeInput, { factoryId: spec.id, factoryVersion: spec.version, factoryRunId: run.id, nodeId: node.id, functionId: node.functionId, functionVersion: node.functionVersion, attempt, startedAt: nodeRun.startedAt });
           nodeRun.status = "completed"; nodeRun.finishedAt = now(); nodeRun.latencyMs = Date.now() - started; nodeRun.costUsd = result.costUsd ?? 0; run.totalCostUsd += nodeRun.costUsd; run.totalLatencyMs += nodeRun.latencyMs; outputs.set(node.id, result.output); completed = true;
+          opts.onNodeRun?.(run);
         } catch (error) {
           nodeRun.status = "failed"; nodeRun.finishedAt = now(); nodeRun.latencyMs = Date.now() - started; nodeRun.error = { type: error instanceof Error ? error.constructor.name : "UnknownError", message: error instanceof Error ? error.message : String(error) }; run.totalLatencyMs += nodeRun.latencyMs;
+          opts.onNodeRun?.(run);
         }
       }
       if (!completed) { run.status = "failed"; run.finishedAt = now(); return run; }
