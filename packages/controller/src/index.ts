@@ -22,7 +22,7 @@ export interface EnvelopeViolation { metric: keyof ObservedFactoryState; observe
 export interface EnvelopeAssessment { withinEnvelope: boolean; violations: EnvelopeViolation[]; errors: Partial<Record<keyof ObservedFactoryState, number>>; }
 export interface ControlAction { type: keyof ObservedFactoryState; adjustment: number; direction: "increase" | "decrease"; reason: string; }
 export interface ControlPolicy { maxAdjustment?: number; }
-export interface ActuatorSpec { id: string; variable: string; kind: "number" | "choice"; value: number | string; min?: number; max?: number; step?: number; options?: string[]; addresses: Array<keyof ObservedFactoryState>; }
+export interface ActuatorSpec { id: string; variable: string; kind: "number" | "choice"; value: number | string; min?: number; max?: number; step?: number; options?: string[]; addresses: Array<keyof ObservedFactoryState>; effects: Partial<Record<keyof ObservedFactoryState, -1 | 0 | 1>>; }
 export interface ActuatorAction { actuatorId: string; variable: string; from: number | string; to: number | string; metric: keyof ObservedFactoryState; reason: string; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
@@ -72,10 +72,15 @@ export function chooseActuatorActions(assessment: EnvelopeAssessment, actuators:
   const actions: ActuatorAction[] = [];
   for (const violation of assessment.violations) {
     if (actions.length >= maxActions) break;
-    const actuator = actuators.find((candidate) => candidate.addresses.includes(violation.metric));
+    const actuator = actuators.find((candidate) => {
+      const effect = candidate.effects[violation.metric];
+      return candidate.addresses.includes(violation.metric) && effect !== undefined && effect !== 0;
+    });
     if (!actuator) continue;
+    const effect = actuator.effects[violation.metric]!;
     const minimum = violation.metric === "quality" || violation.metric === "throughputPerHour" || violation.metric === "recoveryEfficiency";
-    const direction = minimum ? 1 : -1;
+    const desiredEffect = minimum ? 1 : -1;
+    const direction = desiredEffect * effect;
     let next: number | string;
     if (actuator.kind === "number") {
       if (typeof actuator.value !== "number") throw new Error(`Numeric actuator ${actuator.id} has a non-numeric value`);
