@@ -1,5 +1,8 @@
-export interface CronSchedule { id: string; cron: string; input: unknown; nextFireAt: string; lastFiredAt?: string; }
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+
+export interface CronSchedule { id: string; cron: string; input: unknown; nextFireAt: string; lastFiredAt?: string; enabled?: boolean; }
 export type JobSubmitter = (input: unknown, idempotencyKey: string) => Promise<void>;
+export interface CronSchedulerOptions { storagePath?: string; }
 
 function intervalMs(cron: string): number {
   const fields = cron.trim().split(/\s+/);
@@ -11,13 +14,25 @@ function intervalMs(cron: string): number {
   throw new Error(`Unsupported cron expression: ${cron}`);
 }
 
-export function createCronScheduler(submitJob: JobSubmitter) {
+function persist(path: string | undefined, schedules: Map<string, CronSchedule>) {
+  if (!path) return;
+  const temporary = `${path}.tmp`;
+  writeFileSync(temporary, JSON.stringify([...schedules.values()], null, 2));
+  renameSync(temporary, path);
+}
+
+export function createCronScheduler(submitJob: JobSubmitter, options: CronSchedulerOptions = {}) {
   const schedules = new Map<string, CronSchedule>();
+  if (options.storagePath && existsSync(options.storagePath)) {
+    const saved = JSON.parse(readFileSync(options.storagePath, "utf8")) as CronSchedule[];
+    for (const schedule of saved) { intervalMs(schedule.cron); schedules.set(schedule.id, schedule); }
+  }
   return {
-    add(schedule: CronSchedule) { intervalMs(schedule.cron); schedules.set(schedule.id, { ...schedule }); },
+    add(schedule: CronSchedule) { intervalMs(schedule.cron); schedules.set(schedule.id, { enabled: true, ...schedule }); persist(options.storagePath, schedules); },
     get(id: string) { return schedules.get(id); },
     async tick(now: Date = new Date()) {
       for (const schedule of schedules.values()) {
+        if (schedule.enabled === false) continue;
         const interval = intervalMs(schedule.cron);
         let next = new Date(schedule.nextFireAt);
         while (next <= now) {
@@ -28,6 +43,7 @@ export function createCronScheduler(submitJob: JobSubmitter) {
         }
         schedule.nextFireAt = next.toISOString();
       }
+      persist(options.storagePath, schedules);
     }
   };
 }

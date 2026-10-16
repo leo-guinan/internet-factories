@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { createCronScheduler } from "../packages/scheduler/src/index.js";
 
@@ -28,4 +31,19 @@ test("cron scheduler rejects unsupported daily hour syntax instead of changing i
     () => scheduler.add({ id: "daily", cron: "0 3 * * *", input: {}, nextFireAt: "2026-10-15T03:00:00.000Z" }),
     /Unsupported cron expression/
   );
+});
+
+test("cron schedules survive scheduler restart when storage is configured", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "internet-factories-scheduler-"));
+  const storagePath = join(directory, "schedules.json");
+  const first = createCronScheduler(async () => undefined, { storagePath });
+  first.add({ id: "persisted", cron: "*/5 * * * *", input: { value: 1 }, nextFireAt: "2026-10-15T12:00:00.000Z" });
+  await first.tick(new Date("2026-10-15T12:00:00.000Z"));
+
+  const jobs: Array<{ input: unknown; key: string }> = [];
+  const restarted = createCronScheduler(async (input, key) => { jobs.push({ input, key }); }, { storagePath });
+  assert.equal(restarted.get("persisted")?.lastFiredAt, "2026-10-15T12:00:00.000Z");
+  await restarted.tick(new Date("2026-10-15T12:05:00.000Z"));
+  assert.deepEqual(jobs, [{ input: { value: 1 }, key: "cron:persisted:2026-10-15T12:05:00.000Z" }]);
+  assert.match(await readFile(storagePath, "utf8"), /persisted/);
 });
