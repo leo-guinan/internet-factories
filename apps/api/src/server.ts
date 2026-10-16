@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { executeFactory, envelopeForArtifact, sha256Of, type ArtifactReference, type ArtifactEnvelope, type FactoryFunction, type FactoryNetworkContract, type FactoryRun, type FactorySpec, type WebhookSubscription } from "../../../packages/runtime/src/index.js";
 
 export interface WebhookOutboxEntry { id: string; event: "artifact.accepted"; url: string; idempotencyKey: string; envelope: ArtifactEnvelope; status: "pending" | "delivered" | "failed"; attempts: number; lastError?: string; }
-export interface FactoryServerOptions { spec: FactorySpec; functions: Record<string, FactoryFunction>; outputSchema: string; inputSchemas?: string[]; quality?: (output: unknown) => number; webhooks?: WebhookSubscription[]; }
+export interface FactoryServerOptions { spec: FactorySpec; functions: Record<string, FactoryFunction>; outputSchema: string; inputSchemas?: string[]; storagePath?: string; port?: number; quality?: (output: unknown) => number; webhooks?: WebhookSubscription[]; }
 export interface FactoryServer {
   readonly contract: FactoryNetworkContract;
   readonly outbox: WebhookOutboxEntry[];
@@ -15,6 +17,7 @@ export interface FactoryServer {
   getRun(id: string): FactoryRun | undefined;
 }
 
+type PersistedState = { runs: FactoryRun[]; idempotency: Array<[string, string]>; artifacts: Array<[string, ArtifactEnvelope]>; contents: Array<[string, unknown]>; outbox: WebhookOutboxEntry[] };
 type JobBody = { input?: unknown; idempotency_key?: string };
 const json = (response: ServerResponse, status: number, body: unknown) => { response.statusCode = status; response.setHeader("content-type", "application/json"); response.end(JSON.stringify(body)); };
 async function readJson(request: IncomingMessage): Promise<unknown> { let raw = ""; for await (const chunk of request) raw += chunk; return raw ? JSON.parse(raw) : {}; }
@@ -36,6 +39,24 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
   const outbox: WebhookOutboxEntry[] = [];
   let server: Server | undefined;
   let address = "";
+  if (options.storagePath) {
+    try {
+      const state = JSON.parse(readFileSync(options.storagePath, "utf8")) as PersistedState;
+      for (const run of state.runs) runs.set(run.id, run);
+      for (const [key, runId] of state.idempotency) { const run = runs.get(runId); if (run) idempotency.set(key, run); }
+      for (const [id, artifact] of state.artifacts) artifacts.set(id, artifact);
+      for (const [id, content] of state.contents) contents.set(id, content);
+      outbox.push(...state.outbox);
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+  const persist = () => {
+    if (!options.storagePath) return;
+    mkdirSync(dirname(options.storagePath), { recursive: true });
+    const state: PersistedState = { runs: [...runs.values()], idempotency: [...idempotency.entries()].map(([key, run]) => [key, run.id]), artifacts: [...artifacts.entries()], contents: [...contents.entries()], outbox };
+    const temporary = `${options.storagePath}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify(state));
+    renameSync(temporary, options.storagePath);
+  };
   const contract: FactoryNetworkContract = { input: { type: "api", schema: "job@1" }, output: { type: "artifact", schema: options.outputSchema }, webhooks: options.webhooks ?? [] };
 
   const submit = async (body: JobBody, requestId?: string): Promise<{ run: FactoryRun; duplicate: boolean }> => {
@@ -59,6 +80,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
       artifacts.set(envelope.artifact_id, envelope);
       for (const webhook of options.webhooks ?? []) outbox.push({ id: `out_${randomUUID()}`, event: "artifact.accepted", url: webhook.url, idempotencyKey: `artifact.accepted:${envelope.artifact_id}:${webhook.url}`, envelope, status: "pending", attempts: 0 });
     }
+    persist();
     return { run, duplicate: false };
   };
 
@@ -93,9 +115,9 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
     contract,
     outbox,
     get url() { return address; },
-    async start() { server = createServer((request, response) => { void handler(request, response); }); await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", () => { const info = server!.address(); if (info && typeof info !== "string") address = `http://127.0.0.1:${info.port}`; resolve(); })); },
+    async start() { server = createServer((request, response) => { void handler(request, response); }); await new Promise<void>((resolve) => server!.listen(options.port ?? 0, "127.0.0.1", () => { const info = server!.address(); if (info && typeof info !== "string") address = `http://127.0.0.1:${info.port}`; for (const artifact of artifacts.values()) artifact.uri = `${address}/artifacts/${artifact.artifact_id}/content`; for (const entry of outbox) entry.envelope.uri = `${address}/artifacts/${entry.envelope.artifact_id}/content`; for (const run of runs.values()) for (const artifact of run.artifacts) artifact.uri = `${address}/artifacts/${artifact.id}/content`; persist(); resolve(); })); },
     async close() { if (server) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve())); server = undefined; address = ""; },
-    async flushWebhooks() { for (const entry of outbox.filter((item) => item.status !== "delivered")) { entry.attempts += 1; try { const response = await fetch(entry.url, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": entry.idempotencyKey }, body: JSON.stringify({ input: entry.envelope, idempotency_key: entry.idempotencyKey }) }); if (!response.ok) throw new Error(`HTTP ${response.status}`); entry.status = "delivered"; } catch (error) { entry.status = "failed"; entry.lastError = error instanceof Error ? error.message : String(error); } } },
+    async flushWebhooks() { for (const entry of outbox.filter((item) => item.status !== "delivered")) { entry.attempts += 1; try { const response = await fetch(entry.url, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": entry.idempotencyKey }, body: JSON.stringify({ input: entry.envelope, idempotency_key: entry.idempotencyKey }) }); if (!response.ok) throw new Error(`HTTP ${response.status}`); entry.status = "delivered"; } catch (error) { entry.status = "failed"; entry.lastError = error instanceof Error ? error.message : String(error); } persist(); } },
     listRuns() { return [...runs.values()]; },
     getRun(id: string) { return runs.get(id); }
   };
