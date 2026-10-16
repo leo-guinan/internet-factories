@@ -6,7 +6,7 @@ A factory is clocked work under a measurable quality constraint:
 
 `Factory = Schedule + Work + Measurement`
 
-This repository is the v0.1 foundation. It currently contains a typed runtime contract, a deterministic in-memory execution path, a reference factory manifest, and tests. Persistence, cron ownership, adapters, API, and web surfaces are deliberately scaffolded for the next build slices.
+This repository is the v0.1 foundation. It currently contains a typed runtime contract, a deterministic in-memory execution path, a local HTTP `/jobs` API with run/artifact inspection, webhook outbox delivery, idempotency, a reference factory manifest, and tests. PostgreSQL, durable queue ownership, cron, authentication, and web surfaces remain deferred.
 
 ## Quickstart
 
@@ -34,6 +34,7 @@ The network envelope carries identity and economics while payloads remain in art
 This is a contract boundary, not a marketplace or automatic trust system. Schema compatibility, authentication, retries, signing, and delivery receipts remain next slices.
 
 
+- `apps/api` — local HTTP API: `POST /jobs`, `GET /runs/:id`, `GET /artifacts/:id`, and webhook outbox delivery
 - `packages/runtime` — factory/function/run/node/artifact contracts and deterministic execution
 - `packages/manifest` — manifest contract boundary
 - `packages/meter` — metric formulas and raw measurement types

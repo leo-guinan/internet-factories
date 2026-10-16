@@ -31,4 +31,6 @@ Initial API contract:
 - `GET /artifacts/:id` returns artifact metadata and provenance.
 - `artifact.accepted` announces only outputs that passed the factory quality gate.
 
-Not implemented yet: HTTP server, webhook dispatcher, authentication/signatures, delivery retry receipts, schema registry, and payload authorization. The envelope types are implemented locally so those surfaces have a stable seam.
+Implemented locally: HTTP server, `POST /jobs`, `GET /runs/:id`, `GET /artifacts/:id`, in-memory run/artifact persistence, webhook outbox delivery, and idempotency-key deduplication.
+
+Not implemented yet: durable database storage, authentication/signatures, delivery retry receipts beyond the in-memory outbox status, schema registry, and payload authorization.
