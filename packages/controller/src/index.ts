@@ -20,6 +20,8 @@ export interface ObservedFactoryState {
 
 export interface EnvelopeViolation { metric: keyof ObservedFactoryState; observed: number; target: number; error: number; }
 export interface EnvelopeAssessment { withinEnvelope: boolean; violations: EnvelopeViolation[]; errors: Partial<Record<keyof ObservedFactoryState, number>>; }
+export interface ControlAction { type: keyof ObservedFactoryState; adjustment: number; direction: "increase" | "decrease"; reason: string; }
+export interface ControlPolicy { maxAdjustment?: number; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
@@ -43,4 +45,19 @@ export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: O
     if (error > 0) violations.push({ metric, observed: observed[metric], target, error });
   }
   return { withinEnvelope: violations.length === 0, violations, errors };
+}
+
+export function proposeControlActions(assessment: EnvelopeAssessment, policy: ControlPolicy = {}): ControlAction[] {
+  const maxAdjustment = policy.maxAdjustment ?? 0.25;
+  if (!Number.isFinite(maxAdjustment) || maxAdjustment < 0) throw new Error("maxAdjustment must be a non-negative finite number");
+  return assessment.violations.map((violation) => {
+    const adjustment = Math.min(maxAdjustment, Math.abs(violation.error) / Math.max(Math.abs(violation.target), 1));
+    const minimumMetric = violation.metric === "quality" || violation.metric === "throughputPerHour" || violation.metric === "recoveryEfficiency";
+    return {
+      type: violation.metric,
+      adjustment,
+      direction: minimumMetric ? "increase" : "decrease",
+      reason: `${violation.metric} is outside its operating envelope by ${Math.abs(violation.error)}`
+    };
+  });
 }
