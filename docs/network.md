@@ -44,6 +44,6 @@ Initial API contract:
 - `GET /artifacts/:id/content` returns the artifact payload through the local content boundary.
 - `artifact.accepted` announces only outputs that passed the factory quality gate.
 
-Implemented locally: HTTP server, `POST /jobs`, `GET /runs/:id`, `GET /artifacts/:id`, `GET /artifacts/:id/content`, file-backed run/artifact/content/outbox/idempotency persistence via `storagePath`, restart recovery, webhook outbox delivery, and idempotency-key deduplication.
+Implemented locally: HTTP server, `POST /jobs` acceptance into a persisted queued job, recovery of queued/running jobs on restart, `GET /runs/:id`, `GET /artifacts/:id`, `GET /artifacts/:id/content`, file-backed run/artifact/content/outbox/idempotency persistence via `storagePath`, webhook outbox delivery, and idempotency-key deduplication.
 
 Not implemented yet: durable database storage, authentication/signatures, delivery retry receipts beyond the in-memory outbox status, schema registry, and payload authorization.

@@ -14,18 +14,18 @@ test("durable factory state survives restart and delivers a queued webhook once"
     functions: { consume: { async execute(input) { const content = await (await fetch((input as { uri: string }).uri)).json() as { content: string }; return { output: content.content.toUpperCase(), costUsd: 0.07 }; } } }
   });
   await factoryB.start();
-  const makeA = () => createFactoryServer({
+  const makeA = (autoProcess = true) => createFactoryServer({
     spec: { id: "factory-a", version: "1", nodes: [{ id: "produce", functionId: "produce", functionVersion: "1" }] },
-    outputSchema: "plain-text@1", storagePath,
+    outputSchema: "plain-text@1", storagePath, autoProcess,
     functions: { produce: { async execute() { return { output: "survives restart", costUsd: 0.11 }; } } },
     webhooks: [{ event: "artifact.accepted", url: `${factoryB.url}/jobs` }]
   });
-  const first = makeA();
+  const first = makeA(false);
   await first.start();
   try {
     const response = await fetch(`${first.url}/jobs`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "durable-job-1" }, body: JSON.stringify({ input: { topic: "durability" } }) });
-    assert.equal(response.status, 201);
-    assert.equal(first.outbox[0].status, "pending");
+    assert.equal(response.status, 202);
+    assert.equal(first.outbox.length, 0);
   } finally { await first.close(); }
 
   const restarted = makeA();
