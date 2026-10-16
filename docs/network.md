@@ -28,7 +28,7 @@ Initial API contract:
 
 - `POST /jobs` creates a run from an input envelope or payload reference.
 - `GET /runs/:id` returns production status and trace.
-- `GET /artifacts/:id` returns artifact metadata and provenance.
+- `GET /artifacts/:id/content` returns the artifact payload through the local content boundary.
 - `artifact.accepted` announces only outputs that passed the factory quality gate.
 
 Implemented locally: HTTP server, `POST /jobs`, `GET /runs/:id`, `GET /artifacts/:id`, in-memory run/artifact persistence, webhook outbox delivery, and idempotency-key deduplication.

@@ -28,7 +28,8 @@ The network envelope carries identity and economics while payloads remain in art
 
 - `POST /jobs` — submit work to a factory input port
 - `GET /runs/:id` — inspect a production run
-- `GET /artifacts/:id` — inspect artifact metadata
+- `GET /artifacts/:id` — inspect artifact metadata and parent lineage
+- `GET /artifacts/:id/content` — retrieve the local artifact payload
 - `artifact.accepted` webhook — announce usable output to downstream factories
 
 This is a contract boundary, not a marketplace or automatic trust system. Schema compatibility, authentication, retries, signing, and delivery receipts remain next slices.

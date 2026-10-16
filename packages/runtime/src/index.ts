@@ -11,10 +11,11 @@ export interface FactoryFunction { execute(input: unknown, context: ExecutionCon
 export interface NodeSpec { id: string; functionId: string; functionVersion: string; dependsOn?: string[]; maxAttempts?: number; }
 export interface FactorySpec { id: string; version: string; nodes: NodeSpec[]; minimumQuality?: number; }
 export interface NodeRun { id: string; factoryRunId: string; nodeId: string; attempt: number; status: NodeStatus; startedAt: string; finishedAt?: string; costUsd: number; latencyMs?: number; error?: { type: string; message: string }; }
-export interface Artifact { id: string; factoryId: string; factoryRunId: string; type: string; uri: string; sha256: string; createdAt: string; }
+export interface ArtifactReference { artifact_id: string; factory_id: string; run_id: string; schema: string; }
+export interface Artifact { id: string; factoryId: string; factoryRunId: string; type: string; uri: string; sha256: string; createdAt: string; parents?: ArtifactReference[]; }
 export interface InputPort { type: "webhook" | "api"; schema: string; }
 export interface OutputPort { type: "artifact"; schema: string; }
-export interface ArtifactEnvelope { artifact_id: string; factory_id: string; run_id: string; type: string; uri: string; quality?: number; cost: number; created_at: string; schema: string; }
+export interface ArtifactEnvelope { artifact_id: string; factory_id: string; run_id: string; type: string; uri: string; quality?: number; cost: number; created_at: string; schema: string; parents?: ArtifactReference[]; }
 export interface WebhookSubscription { event: "artifact.accepted"; url: string; }
 export interface FactoryNetworkContract { input: InputPort; output: OutputPort; webhooks?: WebhookSubscription[]; }
 export function validateArtifactEnvelope(envelope: ArtifactEnvelope): string[] {
@@ -25,17 +26,17 @@ export function validateArtifactEnvelope(envelope: ArtifactEnvelope): string[] {
   return errors;
 }
 export function envelopeForArtifact(artifact: Artifact, schema: string, quality: number | undefined, cost: number): ArtifactEnvelope {
-  const envelope: ArtifactEnvelope = { artifact_id: artifact.id, factory_id: artifact.factoryId, run_id: artifact.factoryRunId, type: artifact.type, uri: artifact.uri, quality, cost, created_at: artifact.createdAt, schema };
+  const envelope: ArtifactEnvelope = { artifact_id: artifact.id, factory_id: artifact.factoryId, run_id: artifact.factoryRunId, type: artifact.type, uri: artifact.uri, quality, cost, created_at: artifact.createdAt, schema, parents: artifact.parents };
   const errors = validateArtifactEnvelope(envelope);
   if (errors.length) throw new Error(`Invalid artifact envelope: ${errors.join(", ")}`);
   return envelope;
 }
-export interface FactoryRun { id: string; factoryId: string; factoryVersion: string; status: RunStatus; startedAt?: string; finishedAt?: string; totalCostUsd: number; totalLatencyMs: number; qualityScore?: number; nodeRuns: NodeRun[]; artifacts: Artifact[]; }
+export interface FactoryRun { id: string; factoryId: string; factoryVersion: string; status: RunStatus; startedAt?: string; finishedAt?: string; totalCostUsd: number; totalLatencyMs: number; qualityScore?: number; output?: unknown; nodeRuns: NodeRun[]; artifacts: Artifact[]; }
 
 const now = () => new Date().toISOString();
 const id = (prefix: string, n: number) => `${prefix}_${n.toString(36).padStart(8, "0")}`;
 
-export async function executeFactory(spec: FactorySpec, functions: Record<string, FactoryFunction>, input: unknown, opts: { runId?: string; quality?: (output: unknown) => number } = {}): Promise<FactoryRun> {
+export async function executeFactory(spec: FactorySpec, functions: Record<string, FactoryFunction>, input: unknown, opts: { runId?: string; quality?: (output: unknown) => number; parents?: ArtifactReference[] } = {}): Promise<FactoryRun> {
   const run: FactoryRun = { id: opts.runId ?? id("run", Date.now()), factoryId: spec.id, factoryVersion: spec.version, status: "running", startedAt: now(), totalCostUsd: 0, totalLatencyMs: 0, nodeRuns: [], artifacts: [] };
   const outputs = new Map<string, unknown>();
   try {
@@ -59,10 +60,11 @@ export async function executeFactory(spec: FactorySpec, functions: Record<string
       if (!completed) { run.status = "failed"; run.finishedAt = now(); return run; }
     }
     const output = outputs.get(spec.nodes.at(-1)?.id ?? "output");
+    run.output = output;
     run.qualityScore = opts.quality?.(output) ?? 1;
     const accepted = run.qualityScore >= (spec.minimumQuality ?? 0);
     run.status = accepted ? "completed" : "rejected";
-    if (accepted) run.artifacts.push({ id: id("art", 1), factoryId: spec.id, factoryRunId: run.id, type: "application/json", uri: `memory://${run.id}/output.json`, sha256: "unhashed-local-output", createdAt: now() });
+    if (accepted) run.artifacts.push({ id: id("art", 1), factoryId: spec.id, factoryRunId: run.id, type: "application/json", uri: `memory://${run.id}/output.json`, sha256: "unhashed-local-output", createdAt: now(), parents: opts.parents });
     run.finishedAt = now();
     return run;
   } catch (error) { run.status = "failed"; run.finishedAt = now(); throw error; }
