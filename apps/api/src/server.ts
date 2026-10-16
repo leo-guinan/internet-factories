@@ -71,7 +71,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
       parents.push({ artifact_id: input.artifact_id, factory_id: input.factory_id, run_id: input.run_id, schema: input.schema });
     }
     try {
-      const run = await executeFactory(options.spec, options.functions, body.input, { runId: job.runId, quality: options.quality, parents, executionKeyPrefix: job.id, onNodeRun: (partial) => { runs.set(partial.id, partial); persist(); } });
+      const run = await executeFactory(options.spec, options.functions, body.input, { runId: job.runId, quality: options.quality, parents, executionKeyPrefix: job.id, resumeNodeRuns: runs.get(job.runId)?.nodeRuns, onNodeRun: (partial) => { runs.set(partial.id, partial); persist(); } });
       runs.set(run.id, run); job.runId = run.id; job.status = run.status === "failed" ? "failed" : "completed";
       if (job.idempotencyKey) idempotency.set(job.idempotencyKey, run);
       if (run.status === "completed" && run.artifacts[0]) {
