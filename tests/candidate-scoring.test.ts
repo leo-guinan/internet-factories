@@ -20,10 +20,25 @@ test("candidate ranking predicts the whole envelope before choosing an actuator"
   assert.equal(ranked[0].predictedState.throughputPerHour, 11);
   assert.equal(ranked[0].predictedState.latencyMs, 6800);
   assert.equal(ranked[0].predictedAssessment.violations.some((v) => v.metric === "throughputPerHour"), false);
-  assert.equal(ranked[1].actuatorId, "model");
-  assert.ok(ranked[0].score < ranked[1].score);
+  assert.equal(ranked.find((candidate) => candidate.actuatorId === "model")?.actuatorId, "model");
+  assert.ok(ranked[0].score < ranked.find((candidate) => candidate.actuatorId === "model")!.score);
 });
 
 test("candidate ranking ignores actuators without learned response data", () => {
-  assert.deepEqual(rankActuatorCandidates(envelope, current, actuators, []).map((candidate) => candidate.actuatorId), []);
+  assert.deepEqual(rankActuatorCandidates(envelope, current, actuators, []).map((candidate) => candidate.actuatorId), ["noop"]);
+});
+
+test("latency-only violation keeps the actuator direction that reduces latency", () => {
+  const latencyOnly = { ...current, throughputPerHour: 10 };
+  const ranked = rankActuatorCandidates(envelope, latencyOnly, actuators, responses);
+  const parallelism = ranked.find((candidate) => candidate.actuatorId === "parallelism");
+  assert.equal(parallelism?.delta, 1);
+});
+
+test("no-op wins when every available intervention worsens the envelope", () => {
+  const harmful: ActuatorSpec[] = [{ ...actuators[0], effects: { throughputPerHour: -1, latencyMs: 1 } }];
+  const harmfulResponse: ActuatorResponseModel[] = [{ ...responses[0], responsePerUnit: { ...responses[0].responsePerUnit, throughputPerHour: -2, latencyMs: 200 } }];
+  const ranked = rankActuatorCandidates(envelope, { ...current, throughputPerHour: 10 }, harmful, harmfulResponse);
+  assert.equal(ranked[0].actuatorId, "noop");
+  assert.equal(ranked[0].delta, 0);
 });

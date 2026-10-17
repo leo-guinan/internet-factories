@@ -158,6 +158,8 @@ export function rankActuatorCandidates(envelope: OperatingEnvelope, current: Obs
   const currentAssessment = assessOperatingEnvelope(envelope, current);
   const responseById = new Map(responses.map((response) => [response.actuatorId, response]));
   const candidates: ActuatorCandidate[] = [];
+  const currentEnvelopeError = currentAssessment.violations.reduce((sum, violation) => sum + Math.abs(violation.error) / Math.max(Math.abs(violation.target), 1), 0);
+  candidates.push({ actuatorId: "noop", variable: "none", delta: 0, predictedState: { ...current }, predictedAssessment: currentAssessment, score: currentEnvelopeError });
   for (const actuator of actuators) {
     const response = responseById.get(actuator.id);
     if (!response) continue;
@@ -168,7 +170,10 @@ export function rankActuatorCandidates(envelope: OperatingEnvelope, current: Obs
         const desired = violation.metric === "quality" || violation.metric === "throughputPerHour" || violation.metric === "recoveryEfficiency" ? 1 : -1;
         return effect !== 0 && Math.sign(effect) === desired;
       });
-      if (helpfulViolation) delta = Math.sign(response.responsePerUnit[helpfulViolation.metric]) * delta;
+      if (helpfulViolation) {
+        const desired = helpfulViolation.metric === "quality" || helpfulViolation.metric === "throughputPerHour" || helpfulViolation.metric === "recoveryEfficiency" ? 1 : -1;
+        delta = desired * Math.sign(response.responsePerUnit[helpfulViolation.metric]) * delta;
+      }
       if (actuator.min !== undefined && actuator.value + delta < actuator.min) delta = actuator.min - actuator.value;
       if (actuator.max !== undefined && actuator.value + delta > actuator.max) delta = actuator.max - actuator.value;
     } else if (actuator.kind === "choice" && (!actuator.options || actuator.options.indexOf(String(actuator.value)) >= actuator.options.length - 1)) continue;
