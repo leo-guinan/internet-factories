@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 export interface OperatingEnvelope {
   qualityMin?: number;
   costMaxUsd?: number;
@@ -30,6 +32,7 @@ export interface ActuatorChangeInput { actuatorId: string; from: number; to: num
 export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; }
 export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
 export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
+export interface ControlDecision { id: string; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
@@ -185,4 +188,16 @@ export function rankActuatorCandidates(envelope: OperatingEnvelope, current: Obs
     candidates.push({ actuatorId: actuator.id, variable: actuator.variable, delta, predictedState, predictedAssessment, score });
   }
   return candidates.sort((a, b) => a.score - b.score);
+}
+
+export function makeControlDecision(observedState: ObservedFactoryState, candidates: ActuatorCandidate[], appliedAt?: string): ControlDecision {
+  if (candidates.length === 0) throw new Error("at least one control candidate is required");
+  const selectedCandidate = candidates[0];
+  const noop = candidates.find((candidate) => candidate.actuatorId === "noop");
+  return { id: `ctl_${randomUUID()}`, observedState: { ...observedState }, candidateSet: candidates.map((candidate) => ({ ...candidate, predictedState: { ...candidate.predictedState } })), selectedCandidate, predictedState: { ...selectedCandidate.predictedState }, scoreBefore: noop?.score ?? selectedCandidate.score, scoreAfterPredicted: selectedCandidate.score, appliedAt };
+}
+
+export function completeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, observedAt?: string): ControlDecision {
+  const predictionError = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(resultingObservation[metric] - decision.predictedState[metric])])) as unknown as ObservedFactoryState;
+  return { ...decision, observedAt, resultingObservation: { ...resultingObservation }, predictionError };
 }
