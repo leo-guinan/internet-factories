@@ -29,6 +29,7 @@ export interface ObservationWindowOptions { alpha?: number; maxSamples?: number;
 export interface ActuatorChangeInput { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; sampleCount: number; observedAt?: string; }
 export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; }
 export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
+export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
@@ -151,4 +152,32 @@ export function learnActuatorResponses(observations: ActuatorObservation[]): Act
     const responsePerUnit = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(group.reduce((sum, observation) => sum + observation.sampleCount * observation.delta[metric] / (observation.to - observation.from), 0) / sampleCount)])) as unknown as ObservedFactoryState;
     return { actuatorId, sampleCount, responsePerUnit };
   });
+}
+
+export function rankActuatorCandidates(envelope: OperatingEnvelope, current: ObservedFactoryState, actuators: ActuatorSpec[], responses: ActuatorResponseModel[], options: { controlCostWeight?: number } = {}): ActuatorCandidate[] {
+  const currentAssessment = assessOperatingEnvelope(envelope, current);
+  const responseById = new Map(responses.map((response) => [response.actuatorId, response]));
+  const candidates: ActuatorCandidate[] = [];
+  for (const actuator of actuators) {
+    const response = responseById.get(actuator.id);
+    if (!response) continue;
+    let delta = actuator.kind === "number" ? actuator.step ?? 1 : 1;
+    if (actuator.kind === "number" && typeof actuator.value === "number") {
+      const helpfulViolation = currentAssessment.violations.find((violation) => {
+        const effect = response.responsePerUnit[violation.metric];
+        const desired = violation.metric === "quality" || violation.metric === "throughputPerHour" || violation.metric === "recoveryEfficiency" ? 1 : -1;
+        return effect !== 0 && Math.sign(effect) === desired;
+      });
+      if (helpfulViolation) delta = Math.sign(response.responsePerUnit[helpfulViolation.metric]) * delta;
+      if (actuator.min !== undefined && actuator.value + delta < actuator.min) delta = actuator.min - actuator.value;
+      if (actuator.max !== undefined && actuator.value + delta > actuator.max) delta = actuator.max - actuator.value;
+    } else if (actuator.kind === "choice" && (!actuator.options || actuator.options.indexOf(String(actuator.value)) >= actuator.options.length - 1)) continue;
+    if (delta === 0) continue;
+    const predictedState = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(current[metric] + response.responsePerUnit[metric] * delta)])) as unknown as ObservedFactoryState;
+    const predictedAssessment = assessOperatingEnvelope(envelope, predictedState);
+    const envelopeError = predictedAssessment.violations.reduce((sum, violation) => sum + Math.abs(violation.error) / Math.max(Math.abs(violation.target), 1), 0);
+    const score = envelopeError + (options.controlCostWeight ?? 0.01) * Math.abs(delta);
+    candidates.push({ actuatorId: actuator.id, variable: actuator.variable, delta, predictedState, predictedAssessment, score });
+  }
+  return candidates.sort((a, b) => a.score - b.score);
 }
