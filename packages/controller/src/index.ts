@@ -206,6 +206,12 @@ export function completeControlDecision(decision: ControlDecision, resultingObse
   return { ...decision, status: "observed", observedAt, resultingObservation: { ...resultingObservation }, predictionError };
 }
 
+export function observeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, store: ControlDecisionStore, observedAt?: string): ControlDecision {
+  const observed = completeControlDecision(decision, resultingObservation, observedAt);
+  store.save(observed);
+  return observed;
+}
+
 export class ControlDecisionStore {
   private readonly decisions = new Map<string, ControlDecision>();
   private readonly storagePath: string;
@@ -225,7 +231,8 @@ export class ControlDecisionStore {
 }
 
 export async function executeControlDecision(decision: ControlDecision, adapter: ControlActuatorAdapter, store: ControlDecisionStore, appliedAt?: string): Promise<ControlDecision> {
-  const current = store.get(decision.id) ?? decision;
+  if (!store.get(decision.id)) store.save({ ...decision, status: "planned" });
+  const current = store.get(decision.id)!;
   if (current.status === "applied" || current.status === "observed") return current;
   try {
     if (current.selectedCandidate.actuatorId !== "noop") await adapter.apply(current.selectedCandidate, { idempotencyKey: current.id });

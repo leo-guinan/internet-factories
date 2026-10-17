@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ControlDecisionStore, executeControlDecision, makeControlDecision, type ActuatorCandidate, type ObservedFactoryState } from "../packages/controller/src/index.js";
+import { ControlDecisionStore, executeControlDecision, makeControlDecision, observeControlDecision, type ActuatorCandidate, type ObservedFactoryState } from "../packages/controller/src/index.js";
 
 const state: ObservedFactoryState = { quality: 0.9, costUsd: 1, latencyMs: 7000, throughputPerHour: 4, failureRate: 0.1, retryRate: 0.1, recoveryEfficiency: 0.5 };
 const candidate: ActuatorCandidate = { actuatorId: "parallelism", variable: "parallelism", delta: 1, predictedState: { ...state, latencyMs: 6800 }, predictedAssessment: { withinEnvelope: true, violations: [], errors: {} }, score: 0.1 };
@@ -30,4 +30,24 @@ test("actuator application is idempotent and persists applied status", async () 
   assert.equal(applied.status, "applied");
   assert.deepEqual(keys, [decision.id]);
   assert.equal(store.get(decision.id)?.status, "applied");
+});
+
+test("actuator execution persists an unsaved plan before calling the adapter", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "internet-factories-control-"));
+  const store = new ControlDecisionStore({ storagePath: join(dir, "decisions.json") });
+  const decision = makeControlDecision(state, [candidate]);
+  let wasPersistedBeforeApply = false;
+  const adapter = { apply: async () => { wasPersistedBeforeApply = store.get(decision.id)?.status === "planned"; } };
+  await executeControlDecision(decision, adapter, store);
+  assert.equal(wasPersistedBeforeApply, true);
+});
+
+test("observing a decision persists the prediction error and observed status", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "internet-factories-control-"));
+  const store = new ControlDecisionStore({ storagePath: join(dir, "decisions.json") });
+  const decision = makeControlDecision(state, [candidate]);
+  store.save(decision);
+  const observed = observeControlDecision(decision, { ...candidate.predictedState, latencyMs: 6900 }, store, "2026-10-15T12:05:00.000Z");
+  assert.equal(observed.status, "observed");
+  assert.equal(store.get(decision.id)?.predictionError?.latencyMs, 100);
 });
