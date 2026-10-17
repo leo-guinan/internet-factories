@@ -147,7 +147,8 @@ export function learnActuatorResponses(observations: ActuatorObservation[]): Act
   const groups = new Map<string, ActuatorObservation[]>();
   for (const observation of observations) groups.set(observation.actuatorId, [...(groups.get(observation.actuatorId) ?? []), observation]);
   return [...groups.entries()].map(([actuatorId, group]) => {
-    const responsePerUnit = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(group.reduce((sum, observation) => sum + observation.delta[metric] / (observation.to - observation.from), 0) / group.length)])) as unknown as ObservedFactoryState;
-    return { actuatorId, sampleCount: group.length, responsePerUnit };
+    const sampleCount = group.reduce((sum, observation) => sum + observation.sampleCount, 0);
+    const responsePerUnit = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(group.reduce((sum, observation) => sum + observation.sampleCount * observation.delta[metric] / (observation.to - observation.from), 0) / sampleCount)])) as unknown as ObservedFactoryState;
+    return { actuatorId, sampleCount, responsePerUnit };
   });
 }
