@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 export interface OperatingEnvelope {
   qualityMin?: number;
@@ -32,7 +34,9 @@ export interface ActuatorChangeInput { actuatorId: string; from: number; to: num
 export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; }
 export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
 export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
-export interface ControlDecision { id: string; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; }
+export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
+export interface ControlDecisionStoreOptions { storagePath: string; }
+export interface ControlActuatorAdapter { apply(candidate: ActuatorCandidate, context: { idempotencyKey: string }): Promise<void>; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
@@ -194,10 +198,43 @@ export function makeControlDecision(observedState: ObservedFactoryState, candida
   if (candidates.length === 0) throw new Error("at least one control candidate is required");
   const selectedCandidate = candidates[0];
   const noop = candidates.find((candidate) => candidate.actuatorId === "noop");
-  return { id: `ctl_${randomUUID()}`, observedState: { ...observedState }, candidateSet: candidates.map((candidate) => ({ ...candidate, predictedState: { ...candidate.predictedState } })), selectedCandidate, predictedState: { ...selectedCandidate.predictedState }, scoreBefore: noop?.score ?? selectedCandidate.score, scoreAfterPredicted: selectedCandidate.score, appliedAt };
+  return { id: `ctl_${randomUUID()}`, status: "planned", observedState: { ...observedState }, candidateSet: candidates.map((candidate) => ({ ...candidate, predictedState: { ...candidate.predictedState } })), selectedCandidate, predictedState: { ...selectedCandidate.predictedState }, scoreBefore: noop?.score ?? selectedCandidate.score, scoreAfterPredicted: selectedCandidate.score, appliedAt };
 }
 
 export function completeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, observedAt?: string): ControlDecision {
   const predictionError = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(resultingObservation[metric] - decision.predictedState[metric])])) as unknown as ObservedFactoryState;
-  return { ...decision, observedAt, resultingObservation: { ...resultingObservation }, predictionError };
+  return { ...decision, status: "observed", observedAt, resultingObservation: { ...resultingObservation }, predictionError };
+}
+
+export class ControlDecisionStore {
+  private readonly decisions = new Map<string, ControlDecision>();
+  private readonly storagePath: string;
+  constructor(options: ControlDecisionStoreOptions) {
+    this.storagePath = options.storagePath;
+    if (existsSync(this.storagePath)) for (const decision of JSON.parse(readFileSync(this.storagePath, "utf8")) as ControlDecision[]) this.decisions.set(decision.id, decision);
+  }
+  save(decision: ControlDecision) { this.decisions.set(decision.id, decision); this.persist(); }
+  get(id: string) { return this.decisions.get(id); }
+  pending() { return [...this.decisions.values()].filter((decision) => decision.status === "planned"); }
+  private persist() {
+    mkdirSync(dirname(this.storagePath), { recursive: true });
+    const temporary = `${this.storagePath}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify([...this.decisions.values()], null, 2));
+    renameSync(temporary, this.storagePath);
+  }
+}
+
+export async function executeControlDecision(decision: ControlDecision, adapter: ControlActuatorAdapter, store: ControlDecisionStore, appliedAt?: string): Promise<ControlDecision> {
+  const current = store.get(decision.id) ?? decision;
+  if (current.status === "applied" || current.status === "observed") return current;
+  try {
+    if (current.selectedCandidate.actuatorId !== "noop") await adapter.apply(current.selectedCandidate, { idempotencyKey: current.id });
+    const applied = { ...current, status: "applied" as const, appliedAt: appliedAt ?? new Date().toISOString() };
+    store.save(applied);
+    return applied;
+  } catch (error) {
+    const failed = { ...current, status: "failed" as const, error: error instanceof Error ? error.message : String(error) };
+    store.save(failed);
+    throw error;
+  }
 }
