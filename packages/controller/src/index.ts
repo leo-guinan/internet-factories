@@ -33,7 +33,7 @@ export interface ObservationWindowOptions { alpha?: number; maxSamples?: number;
 export interface ActuatorChangeInput { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; sampleCount: number; observedAt?: string; }
 export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; }
 export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
-export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
+export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; from?: number; to?: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
 export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
 export interface ControlDecisionStoreOptions { storagePath: string; }
 export interface ControlActuatorAdapter { apply(candidate: ActuatorCandidate, context: { idempotencyKey: string }): Promise<void>; }
@@ -161,6 +161,17 @@ export function learnActuatorResponses(observations: ActuatorObservation[]): Act
   });
 }
 
+export function observationFromControlDecision(decision: ControlDecision): ActuatorObservation | undefined {
+  const candidate = decision.selectedCandidate;
+  if (decision.status !== "observed" || candidate.actuatorId === "noop" || candidate.from === undefined || candidate.to === undefined || !decision.resultingObservation) return undefined;
+  return observeActuatorChange({ actuatorId: candidate.actuatorId, from: candidate.from, to: candidate.to, stateBefore: decision.observedState, stateAfter: decision.resultingObservation, sampleCount: 1, observedAt: decision.observedAt });
+}
+
+export function learnResponseFromControlDecision(decision: ControlDecision): ActuatorResponseModel | undefined {
+  const observation = observationFromControlDecision(decision);
+  return observation ? learnActuatorResponses([observation])[0] : undefined;
+}
+
 export function rankActuatorCandidates(envelope: OperatingEnvelope, current: ObservedFactoryState, actuators: ActuatorSpec[], responses: ActuatorResponseModel[], options: { controlCostWeight?: number } = {}): ActuatorCandidate[] {
   const currentAssessment = assessOperatingEnvelope(envelope, current);
   const responseById = new Map(responses.map((response) => [response.actuatorId, response]));
@@ -189,7 +200,7 @@ export function rankActuatorCandidates(envelope: OperatingEnvelope, current: Obs
     const predictedAssessment = assessOperatingEnvelope(envelope, predictedState);
     const envelopeError = predictedAssessment.violations.reduce((sum, violation) => sum + Math.abs(violation.error) / Math.max(Math.abs(violation.target), 1), 0);
     const score = envelopeError + (options.controlCostWeight ?? 0.01) * Math.abs(delta);
-    candidates.push({ actuatorId: actuator.id, variable: actuator.variable, delta, predictedState, predictedAssessment, score });
+    candidates.push({ actuatorId: actuator.id, variable: actuator.variable, delta, from: typeof actuator.value === "number" ? actuator.value : undefined, to: typeof actuator.value === "number" ? actuator.value + delta : undefined, predictedState, predictedAssessment, score });
   }
   return candidates.sort((a, b) => a.score - b.score);
 }
