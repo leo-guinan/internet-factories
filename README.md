@@ -6,7 +6,7 @@ A factory is clocked work under a measurable quality constraint:
 
 `Factory = Schedule + Work + Measurement`
 
-This repository is the v0.1 foundation. It currently contains a typed runtime contract, a durable local job ledger with file-backed recovery, a deterministic execution path, a local HTTP `/jobs` API with run/artifact inspection, webhook outbox delivery, idempotency, a reference factory manifest, and tests. PostgreSQL, durable object storage, cron, authentication, and web surfaces remain deferred.
+This repository is the v0.1 foundation. It currently contains a typed runtime contract, a durable local job ledger with file-backed recovery, a deterministic execution path, a local HTTP `/jobs` API with run/artifact inspection, webhook outbox delivery, idempotency, a reference factory manifest, a static GitHub Pages landing site, and tests. PostgreSQL and durable object storage remain deferred.
 
 ## Quickstart
 
