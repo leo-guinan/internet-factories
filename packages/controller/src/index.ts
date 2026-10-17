@@ -26,6 +26,9 @@ export interface ActuatorSpec { id: string; variable: string; kind: "number" | "
 export interface ActuatorAction { actuatorId: string; variable: string; from: number | string; to: number | string; metric: keyof ObservedFactoryState; reason: string; }
 export interface ObservationSnapshot { state: ObservedFactoryState; sampleCount: number; windowSize: number; confidence: number; observedAt?: string; }
 export interface ObservationWindowOptions { alpha?: number; maxSamples?: number; minSamplesForConfidence?: number; }
+export interface ActuatorChangeInput { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; sampleCount: number; observedAt?: string; }
+export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; }
+export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
@@ -128,4 +131,23 @@ export function createObservationWindow(options: ObservationWindowOptions = {}) 
     },
     snapshot
   };
+}
+
+const observationMetrics: Array<keyof ObservedFactoryState> = ["quality", "costUsd", "latencyMs", "throughputPerHour", "failureRate", "retryRate", "recoveryEfficiency"];
+const rounded = (value: number) => Math.round(value * 1e12) / 1e12;
+
+export function observeActuatorChange(input: ActuatorChangeInput): ActuatorObservation {
+  if (!Number.isFinite(input.from) || !Number.isFinite(input.to) || input.from === input.to) throw new Error("actuator change must have distinct finite numeric values");
+  if (!Number.isInteger(input.sampleCount) || input.sampleCount < 1) throw new Error("sampleCount must be a positive integer");
+  const delta = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(input.stateAfter[metric] - input.stateBefore[metric])])) as unknown as ObservedFactoryState;
+  return { ...input, delta };
+}
+
+export function learnActuatorResponses(observations: ActuatorObservation[]): ActuatorResponseModel[] {
+  const groups = new Map<string, ActuatorObservation[]>();
+  for (const observation of observations) groups.set(observation.actuatorId, [...(groups.get(observation.actuatorId) ?? []), observation]);
+  return [...groups.entries()].map(([actuatorId, group]) => {
+    const responsePerUnit = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(group.reduce((sum, observation) => sum + observation.delta[metric] / (observation.to - observation.from), 0) / group.length)])) as unknown as ObservedFactoryState;
+    return { actuatorId, sampleCount: group.length, responsePerUnit };
+  });
 }
