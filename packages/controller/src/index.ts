@@ -34,7 +34,7 @@ export interface ActuatorChangeInput { actuatorId: string; from: number; to: num
 export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; }
 export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
 export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; from?: number; to?: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
-export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
+export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; observationSampleCount?: number; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
 export interface ControlDecisionStoreOptions { storagePath: string; }
 export interface ControlActuatorAdapter { apply(candidate: ActuatorCandidate, context: { idempotencyKey: string }): Promise<void>; }
 
@@ -164,12 +164,17 @@ export function learnActuatorResponses(observations: ActuatorObservation[]): Act
 export function observationFromControlDecision(decision: ControlDecision): ActuatorObservation | undefined {
   const candidate = decision.selectedCandidate;
   if (decision.status !== "observed" || candidate.actuatorId === "noop" || candidate.from === undefined || candidate.to === undefined || !decision.resultingObservation) return undefined;
-  return observeActuatorChange({ actuatorId: candidate.actuatorId, from: candidate.from, to: candidate.to, stateBefore: decision.observedState, stateAfter: decision.resultingObservation, sampleCount: 1, observedAt: decision.observedAt });
+  return observeActuatorChange({ actuatorId: candidate.actuatorId, from: candidate.from, to: candidate.to, stateBefore: decision.observedState, stateAfter: decision.resultingObservation, sampleCount: decision.observationSampleCount ?? 1, observedAt: decision.observedAt });
 }
 
-export function learnResponseFromControlDecision(decision: ControlDecision): ActuatorResponseModel | undefined {
+export function learnResponseFromControlDecision(decision: ControlDecision, store?: ResponseModelStore): ActuatorResponseModel | undefined {
   const observation = observationFromControlDecision(decision);
-  return observation ? learnActuatorResponses([observation])[0] : undefined;
+  if (!observation) return undefined;
+  if (store) {
+    store.record(observation);
+    return store.get(observation.actuatorId);
+  }
+  return learnActuatorResponses([observation])[0];
 }
 
 export function rankActuatorCandidates(envelope: OperatingEnvelope, current: ObservedFactoryState, actuators: ActuatorSpec[], responses: ActuatorResponseModel[], options: { controlCostWeight?: number } = {}): ActuatorCandidate[] {
@@ -212,17 +217,36 @@ export function makeControlDecision(observedState: ObservedFactoryState, candida
   return { id: `ctl_${randomUUID()}`, status: "planned", observedState: { ...observedState }, candidateSet: candidates.map((candidate) => ({ ...candidate, predictedState: { ...candidate.predictedState } })), selectedCandidate, predictedState: { ...selectedCandidate.predictedState }, scoreBefore: noop?.score ?? selectedCandidate.score, scoreAfterPredicted: selectedCandidate.score, appliedAt };
 }
 
-export function completeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, observedAt?: string): ControlDecision {
+export function completeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, observedAt?: string, observationSampleCount = decision.observationSampleCount ?? 1): ControlDecision {
   const predictionError = Object.fromEntries(observationMetrics.map((metric) => [metric, rounded(resultingObservation[metric] - decision.predictedState[metric])])) as unknown as ObservedFactoryState;
-  return { ...decision, status: "observed", observedAt, resultingObservation: { ...resultingObservation }, predictionError };
+  return { ...decision, status: "observed", observedAt, observationSampleCount, resultingObservation: { ...resultingObservation }, predictionError };
 }
 
-export function observeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, store: ControlDecisionStore, observedAt?: string): ControlDecision {
+export function observeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, store: ControlDecisionStore, observedAt?: string, observationSampleCount = 1): ControlDecision {
   const current = store.get(decision.id);
   if (!current || current.status !== "applied") throw new Error("control decision must be applied before observation");
-  const observed = completeControlDecision(current, resultingObservation, observedAt);
+  const observed = completeControlDecision(current, resultingObservation, observedAt, observationSampleCount);
   store.save(observed);
   return observed;
+}
+
+export interface ResponseModelStoreOptions { storagePath: string; }
+export class ResponseModelStore {
+  private readonly observations: ActuatorObservation[] = [];
+  private readonly storagePath: string;
+  constructor(options: ResponseModelStoreOptions) {
+    this.storagePath = options.storagePath;
+    if (existsSync(this.storagePath)) this.observations.push(...JSON.parse(readFileSync(this.storagePath, "utf8")) as ActuatorObservation[]);
+  }
+  record(observation: ActuatorObservation) {
+    this.observations.push(observation);
+    mkdirSync(dirname(this.storagePath), { recursive: true });
+    const temporary = `${this.storagePath}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify(this.observations, null, 2));
+    renameSync(temporary, this.storagePath);
+  }
+  get(actuatorId: string) { return learnActuatorResponses(this.observations.filter((observation) => observation.actuatorId === actuatorId))[0]; }
+  models() { return learnActuatorResponses(this.observations); }
 }
 
 export class ControlDecisionStore {
