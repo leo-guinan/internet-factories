@@ -207,7 +207,9 @@ export function completeControlDecision(decision: ControlDecision, resultingObse
 }
 
 export function observeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, store: ControlDecisionStore, observedAt?: string): ControlDecision {
-  const observed = completeControlDecision(decision, resultingObservation, observedAt);
+  const current = store.get(decision.id);
+  if (!current || current.status !== "applied") throw new Error("control decision must be applied before observation");
+  const observed = completeControlDecision(current, resultingObservation, observedAt);
   store.save(observed);
   return observed;
 }

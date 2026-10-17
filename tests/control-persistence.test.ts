@@ -47,7 +47,16 @@ test("observing a decision persists the prediction error and observed status", a
   const store = new ControlDecisionStore({ storagePath: join(dir, "decisions.json") });
   const decision = makeControlDecision(state, [candidate]);
   store.save(decision);
+  await executeControlDecision(decision, { apply: async () => undefined }, store, "2026-10-15T12:01:00.000Z");
   const observed = observeControlDecision(decision, { ...candidate.predictedState, latencyMs: 6900 }, store, "2026-10-15T12:05:00.000Z");
   assert.equal(observed.status, "observed");
   assert.equal(store.get(decision.id)?.predictionError?.latencyMs, 100);
+});
+
+test("observation cannot skip the applied lifecycle state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "internet-factories-control-"));
+  const store = new ControlDecisionStore({ storagePath: join(dir, "decisions.json") });
+  const decision = makeControlDecision(state, [candidate]);
+  store.save(decision);
+  assert.throws(() => observeControlDecision(decision, candidate.predictedState, store), /must be applied/);
 });
