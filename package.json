@@ -8,7 +8,8 @@
     "build": "tsc -b",
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc -b --pretty false",
-    "validate": "pnpm typecheck && pnpm test"
+    "validate": "pnpm typecheck && pnpm test",
+    "smoke": "tsx apps/smoke/src/index.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
