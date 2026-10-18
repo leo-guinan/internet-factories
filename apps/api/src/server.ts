@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { executeFactory, envelopeForArtifact, sha256Of, type ArtifactReference, type ArtifactEnvelope, type FactoryFunction, type FactoryNetworkContract, type FactoryRun, type FactorySpec, type WebhookSubscription } from "../../../packages/runtime/src/index.js";
 
 export interface WebhookOutboxEntry { id: string; event: "artifact.accepted"; url: string; idempotencyKey: string; envelope: ArtifactEnvelope; status: "pending" | "delivered" | "failed"; attempts: number; lastError?: string; }
-export interface FactoryServerOptions { spec: FactorySpec; functions: Record<string, FactoryFunction>; outputSchema: string; inputSchemas?: string[]; storagePath?: string; port?: number; autoProcess?: boolean; quality?: (output: unknown) => number; webhooks?: WebhookSubscription[]; }
+export interface FactoryServerOptions { spec: FactorySpec; functions: Record<string, FactoryFunction>; outputSchema: string; inputSchemas?: string[]; storagePath?: string; port?: number; autoProcess?: boolean; quality?: (output: unknown, input: unknown) => number; webhooks?: WebhookSubscription[]; }
 export interface FactoryServer {
   readonly contract: FactoryNetworkContract;
   readonly outbox: WebhookOutboxEntry[];

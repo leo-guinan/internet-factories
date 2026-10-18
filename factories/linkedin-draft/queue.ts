@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import type { InsightInput } from "./schemas.js";
 
 export type InsightQueueStatus = "approved" | "reserved" | "consumed";
-export interface ApprovedInsightRecord { id: string; input: InsightInput; status: InsightQueueStatus; reservedAt?: string; consumedAt?: string; }
+export interface ApprovedInsightRecord { id: string; input: InsightInput; status: InsightQueueStatus; reservationKey?: string; reservedAt?: string; consumedAt?: string; }
 export interface QueueSkip { scheduleId: string; fireAt: string; reason: "no_approved_insight"; recordedAt: string; }
 
 type QueueState = { insights: ApprovedInsightRecord[]; skips: QueueSkip[] };
@@ -21,10 +21,12 @@ export class ApprovedInsightQueue {
     this.insights.push({ id, input, status: "approved" });
     this.persist();
   }
-  reserve(now = new Date()): ApprovedInsightRecord | undefined {
+  reserve(reservationKey: string, now = new Date()): ApprovedInsightRecord | undefined {
+    const existing = this.insights.find((candidate) => candidate.status === "reserved" && candidate.reservationKey === reservationKey);
+    if (existing) return { ...existing };
     const record = this.insights.find((candidate) => candidate.status === "approved");
     if (!record) return undefined;
-    record.status = "reserved"; record.reservedAt = now.toISOString(); this.persist(); return { ...record };
+    record.status = "reserved"; record.reservationKey = reservationKey; record.reservedAt = now.toISOString(); this.persist(); return { ...record };
   }
   consume(id: string, now = new Date()) {
     const record = this.insights.find((candidate) => candidate.id === id);
@@ -34,7 +36,7 @@ export class ApprovedInsightQueue {
   release(id: string) {
     const record = this.insights.find((candidate) => candidate.id === id);
     if (!record || record.status !== "reserved") throw new Error(`insight is not reserved: ${id}`);
-    record.status = "approved"; record.reservedAt = undefined; this.persist();
+    record.status = "approved"; record.reservationKey = undefined; record.reservedAt = undefined; this.persist();
   }
   recordSkip(scheduleId: string, fireAt: string, now = new Date()) {
     if (this.skips.some((skip) => skip.scheduleId === scheduleId && skip.fireAt === fireAt)) return;

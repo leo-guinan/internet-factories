@@ -27,4 +27,20 @@ test("scheduled runner records a skip when no approved insight exists", async ()
   const runner = createLinkedInDraftRunner({ apiUrl: "http://factory.local", queue, schedulerStoragePath: join(directory, "schedule.json"), nextFireAt: "2026-10-18T09:00:00.000Z", transport: async () => new Response("{}", { status: 201 }) });
   await runner.tick(new Date("2026-10-18T09:00:00.000Z"));
   assert.equal(queue.skipsRecorded()[0].reason, "no_approved_insight");
+  assert.equal(queue.skipsRecorded()[0].fireAt, "2026-10-18T09:00:00.000Z");
+});
+
+test("runner restart preserves the recovered schedule cursor and reservation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "internet-factories-runner-"));
+  const queue = new ApprovedInsightQueue(join(directory, "queue.json"));
+  queue.enqueue("approved-1", input);
+  const first = createLinkedInDraftRunner({ apiUrl: "http://factory.local", queue, schedulerStoragePath: join(directory, "schedule.json"), nextFireAt: "2026-10-18T09:00:00.000Z", transport: async () => new Response("{}", { status: 201 }) });
+  await first.tick(new Date("2026-10-18T09:00:00.000Z"));
+  assert.equal(queue.list()[0].status, "consumed");
+  queue.enqueue("approved-2", { ...input, insightId: "insight_2" });
+  const restarted = createLinkedInDraftRunner({ apiUrl: "http://factory.local", queue, schedulerStoragePath: join(directory, "schedule.json"), nextFireAt: "2026-10-18T09:00:00.000Z", transport: async () => new Response("{}", { status: 201 }) });
+  await restarted.tick(new Date("2026-10-18T09:01:00.000Z"));
+  assert.equal(queue.list().find((record) => record.id === "approved-2")?.status, "approved");
+  await restarted.tick(new Date("2026-10-18T09:05:00.000Z"));
+  assert.equal(queue.list().find((record) => record.id === "approved-2")?.status, "consumed");
 });
