@@ -3,6 +3,7 @@ export type LinkedInTransport = (url: string, init?: RequestInit) => Promise<Res
 export interface LinkedInPostPublisherOptions {
   accessToken?: string;
   tokenProvider?: () => Promise<string>;
+  connectionId: string;
   authorUrn: string;
   apiVersion?: string;
   endpoint?: string;
@@ -38,6 +39,8 @@ export class LinkedInPostPublisher {
     this.endpoint = (options.endpoint ?? "https://api.linkedin.com").replace(/\/$/, "");
     this.apiVersion = options.apiVersion ?? "202503";
   }
+
+  get connectionId(): string { return this.options.connectionId; }
 
   async publishText(commentary: string): Promise<LinkedInPostReceipt> {
     if (!commentary.trim()) throw new Error("LinkedIn post cannot be empty");
