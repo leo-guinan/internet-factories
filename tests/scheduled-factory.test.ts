@@ -44,3 +44,15 @@ test("runner restart preserves the recovered schedule cursor and reservation", a
   await restarted.tick(new Date("2026-10-18T09:05:00.000Z"));
   assert.equal(queue.list().find((record) => record.id === "approved-2")?.status, "consumed");
 });
+
+test("replaying a consumed firing keeps its original insight assignment", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "internet-factories-runner-"));
+  const queue = new ApprovedInsightQueue(join(directory, "queue.json"));
+  queue.enqueue("approved-1", input);
+  queue.enqueue("approved-2", { ...input, insightId: "insight_2" });
+  const first = queue.reserve("cron:schedule:2026-10-18T09:00:00.000Z");
+  queue.consume(first!.id);
+  const replay = queue.reserve("cron:schedule:2026-10-18T09:00:00.000Z");
+  assert.equal(replay?.id, "approved-1");
+  assert.equal(queue.list().find((record) => record.id === "approved-2")?.status, "approved");
+});

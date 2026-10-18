@@ -12,6 +12,7 @@ export function createLinkedInDraftRunner(options: LinkedInDraftRunnerOptions) {
     const reserved = options.queue.reserve(idempotencyKey);
     const prefix = `cron:${trigger.scheduleId ?? scheduleId}:`;
     if (!reserved) { options.queue.recordSkip(trigger.scheduleId ?? scheduleId, idempotencyKey.startsWith(prefix) ? idempotencyKey.slice(prefix.length) : idempotencyKey); return; }
+    if (reserved.status === "consumed") return;
     try {
       const response = await transport(`${options.apiUrl.replace(/\/$/, "")}/jobs`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": idempotencyKey }, body: JSON.stringify({ input: reserved.input, idempotency_key: idempotencyKey }) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

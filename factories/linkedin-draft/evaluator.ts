@@ -18,7 +18,7 @@ export function evaluateLinkedInDraft(input: InsightInput, output: unknown, mini
   if (!grounding) issues.push("body is not grounded in the supplied claim or evidence");
   if (!action) issues.push("target action or destination URL changed");
   if (!structure) issues.push("hook, body, or CTA is too short");
-  return { score, accepted: score >= minimumScore, issues, checks };
+  return { score, accepted: schema && action && score >= minimumScore, issues, checks };
 }
 
 export function linkedinQualityEvaluator(output: unknown): number {

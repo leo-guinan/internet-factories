@@ -49,3 +49,10 @@ test("invalid LinkedIn output is rejected while preserving evaluation issues", (
   assert.ok(result.issues.includes("hook, body, or CTA is too short"));
   assert.equal(linkedinQualityEvaluator({ ...draft, body: "bad", cta: "x" }), 0.6);
 });
+
+test("incorrect target action is a mandatory quality failure", () => {
+  const result = evaluateLinkedInDraft(input, { ...draft, targetAction: "Publish immediately" });
+  assert.equal(result.score, 0.8);
+  assert.equal(result.accepted, false);
+  assert.ok(result.issues.includes("target action or destination URL changed"));
+});

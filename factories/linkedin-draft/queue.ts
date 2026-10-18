@@ -22,7 +22,7 @@ export class ApprovedInsightQueue {
     this.persist();
   }
   reserve(reservationKey: string, now = new Date()): ApprovedInsightRecord | undefined {
-    const existing = this.insights.find((candidate) => candidate.status === "reserved" && candidate.reservationKey === reservationKey);
+    const existing = this.insights.find((candidate) => (candidate.status === "reserved" || candidate.status === "consumed") && candidate.reservationKey === reservationKey);
     if (existing) return { ...existing };
     const record = this.insights.find((candidate) => candidate.status === "approved");
     if (!record) return undefined;
