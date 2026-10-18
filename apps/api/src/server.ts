@@ -15,6 +15,8 @@ export interface FactoryServer {
   flushWebhooks(): Promise<void>;
   listRuns(): FactoryRun[];
   getRun(id: string): FactoryRun | undefined;
+  getArtifact(id: string): ArtifactEnvelope | undefined;
+  getArtifactContent(id: string): unknown | undefined;
 }
 
 type JobRecord = { id: string; input: unknown; idempotencyKey?: string; status: "queued" | "running" | "completed" | "failed"; runId?: string; attempts: number };
@@ -137,6 +139,8 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
     async close() { if (server) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve())); server = undefined; address = ""; },
     async flushWebhooks() { for (const entry of outbox.filter((item) => item.status !== "delivered")) { entry.attempts += 1; try { const response = await fetch(entry.url, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": entry.idempotencyKey }, body: JSON.stringify({ input: entry.envelope, idempotency_key: entry.idempotencyKey }) }); if (!response.ok) throw new Error(`HTTP ${response.status}`); entry.status = "delivered"; } catch (error) { entry.status = "failed"; entry.lastError = error instanceof Error ? error.message : String(error); } persist(); } },
     listRuns() { return [...runs.values()]; },
-    getRun(id: string) { return runs.get(id); }
+    getRun(id: string) { return runs.get(id); },
+    getArtifact(id: string) { return artifacts.get(id); },
+    getArtifactContent(id: string) { return contents.get(id); }
   };
 }
