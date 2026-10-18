@@ -23,4 +23,6 @@ authenticated user
   -> audited action
 ```
 
-The current local store is file-backed. It is a development boundary, not production authentication. Passwords, OAuth tokens, session cookies, signing keys, and verification secrets do not belong in this store. Production still needs authenticated sessions, email verification, recovery, signing, replay protection, and durable database transactions.
+The Resend-backed email validation layer creates a single-use random token, stores only its SHA-256 hash, sends the raw token through the configured email sender, and marks `emailVerified` only after token redemption. Admin records exist at bootstrap, but `can()` requires both an active admin grant and a verified email.
+
+The current local store is file-backed. It is a development boundary, not production authentication. Passwords, OAuth tokens, session cookies, signing keys, and verification secrets do not belong in this store. Production still needs authenticated sessions, recovery, signing, replay protection, and durable database transactions.
