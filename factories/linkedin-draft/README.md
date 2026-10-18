@@ -13,7 +13,15 @@ Input contract: `insight@1`
   "coreClaim": "...",
   "supportingEvidence": ["..."],
   "targetAction": "Read the notes",
-  "destinationUrl": "https://example.com/notes"
+  "destinationUrl": "https://example.com/notes",
+  "sixPs": {
+    "people": "independent builders",
+    "positioning": "why this factory over one-off AI work",
+    "promise": "make production measurable",
+    "proof": ["durable job and artifact receipts"],
+    "priority": "before useful work disappears",
+    "process": "typed input to durable artifact"
+  }
 }
 ```
 

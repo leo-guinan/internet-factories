@@ -9,7 +9,10 @@ export interface InsightInput {
   supportingEvidence: string[];
   targetAction: string;
   destinationUrl: string;
+  sixPs: SixPsBrief;
 }
+
+export interface SixPsBrief { people: string; positioning: string; promise: string; proof: string[]; priority: string; process: string; }
 
 export interface LinkedInDraft {
   insightId: string;
@@ -31,8 +34,11 @@ export const linkedinDraftSpec: FactorySpec = {
 export function isInsightInput(value: unknown): value is InsightInput {
   if (!value || typeof value !== "object") return false;
   const input = value as Partial<InsightInput>;
+  const sixPs = input.sixPs as Partial<SixPsBrief> | undefined;
   return [input.insightId, input.campaignId, input.sourceText, input.audience, input.coreClaim, input.targetAction, input.destinationUrl].every((item) => typeof item === "string" && item.trim().length > 0)
-    && Array.isArray(input.supportingEvidence) && input.supportingEvidence.length > 0 && input.supportingEvidence.every((item) => typeof item === "string" && item.trim().length > 0);
+    && Array.isArray(input.supportingEvidence) && input.supportingEvidence.length > 0 && input.supportingEvidence.every((item) => typeof item === "string" && item.trim().length > 0)
+    && !!sixPs && [sixPs.people, sixPs.positioning, sixPs.promise, sixPs.priority, sixPs.process].every((item) => typeof item === "string" && item.trim().length > 0)
+    && Array.isArray(sixPs.proof) && sixPs.proof.length > 0 && sixPs.proof.every((item) => typeof item === "string" && item.trim().length > 0);
 }
 
 export function isLinkedInDraft(value: unknown): value is LinkedInDraft {

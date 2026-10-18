@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createFactoryServer } from "../apps/api/src/server.js";
 import { createLinkedInDraftFactory } from "../factories/linkedin-draft/factory.js";
-import { evaluateLinkedInDraft, linkedinQualityEvaluator } from "../factories/linkedin-draft/evaluator.js";
+import { evaluateLinkedInDraft, evaluateSixPs, linkedinQualityEvaluator } from "../factories/linkedin-draft/evaluator.js";
 import type { InsightInput } from "../factories/linkedin-draft/schemas.js";
 
-const input: InsightInput = { insightId: "insight_1", campaignId: "campaign_1", sourceText: "Factories make work measurable.", audience: "independent builders", coreClaim: "Factories make work measurable", supportingEvidence: ["Durable receipts preserve cost and recovery."], targetAction: "Read the factory notes", destinationUrl: "https://example.com/factories" };
+const input: InsightInput = { insightId: "insight_1", campaignId: "campaign_1", sourceText: "Factories make work measurable.", audience: "independent builders", coreClaim: "Factories make work measurable", supportingEvidence: ["Durable receipts preserve cost and recovery."], targetAction: "Read the factory notes", destinationUrl: "https://example.com/factories", sixPs: { people: "builders", positioning: "factories", promise: "work measurable", proof: ["receipts"], priority: "activity", process: "factories" } };
 const draft = { insightId: input.insightId, campaignId: input.campaignId, hook: "Your AI worker needs a factory.", body: "Independent builders do not need more activity; they need factories that make work measurable. Durable receipts preserve cost and recovery.", cta: "Read the factory notes and see the system.", targetAction: input.targetAction, destinationUrl: input.destinationUrl };
 
 function mockFactory() { return createLinkedInDraftFactory({ generate: async () => ({ draft, costUsd: 0.012, metadata: { model: "test-model", promptTokens: 10, completionTokens: 20 } }) }); }
@@ -52,9 +52,15 @@ test("invalid LinkedIn output is rejected while preserving evaluation issues", (
 
 test("incorrect target action is a mandatory quality failure", () => {
   const result = evaluateLinkedInDraft(input, { ...draft, targetAction: "Publish immediately" });
-  assert.equal(result.score, 0.8);
+  assert.equal(result.score, 0.8333333333333334);
   assert.equal(result.accepted, false);
   assert.ok(result.issues.includes("target action or destination URL changed"));
+});
+
+test("six Ps target scores are visible and gate acceptance", () => {
+  const result = evaluateSixPs(input, { ...draft, body: "Independent builders need factories." });
+  assert.equal(result.accepted, false);
+  assert.ok(result.issues.some((issue) => issue.startsWith("promise score")));
 });
 
 test("factory rejects an output with the wrong target action", async () => {

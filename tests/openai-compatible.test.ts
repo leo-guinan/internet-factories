@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { OpenAICompatibleDraftGenerator } from "../packages/adapters/src/openai-compatible.js";
 import type { InsightInput } from "../factories/linkedin-draft/schemas.js";
 
-const input: InsightInput = { insightId: "i1", campaignId: "c1", sourceText: "source", audience: "builders", coreClaim: "claim", supportingEvidence: ["evidence"], targetAction: "read", destinationUrl: "https://example.com" };
+const input: InsightInput = { insightId: "i1", campaignId: "c1", sourceText: "source", audience: "builders", coreClaim: "claim", supportingEvidence: ["evidence"], targetAction: "read", destinationUrl: "https://example.com", sixPs: { people: "builders", positioning: "useful", promise: "read", proof: ["evidence"], priority: "now", process: "read" } };
 const context = { factoryId: "linkedin-draft", factoryVersion: "1.0.0", factoryRunId: "run_1", nodeId: "generate", functionId: "linkedin-draft-generator", functionVersion: "1", attempt: 1, startedAt: "2026-10-18T00:00:00.000Z", executionId: "exe_1", idempotencyKey: "job_1:generate:1" };
 
 test("OpenAI-compatible adapter forwards structured request and records usage cost", async () => {

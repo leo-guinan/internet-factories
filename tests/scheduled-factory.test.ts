@@ -7,7 +7,7 @@ import { createLinkedInDraftRunner } from "../apps/runner/src/index.js";
 import { ApprovedInsightQueue } from "../factories/linkedin-draft/queue.js";
 import type { InsightInput } from "../factories/linkedin-draft/schemas.js";
 
-const input: InsightInput = { insightId: "insight_scheduled", campaignId: "campaign_1", sourceText: "Factories preserve evidence.", audience: "builders", coreClaim: "Factories preserve evidence", supportingEvidence: ["Receipts survive restart."], targetAction: "Read the notes", destinationUrl: "https://example.com/notes" };
+const input: InsightInput = { insightId: "insight_scheduled", campaignId: "campaign_1", sourceText: "Factories preserve evidence.", audience: "builders", coreClaim: "Factories preserve evidence", supportingEvidence: ["Receipts survive restart."], targetAction: "Read the notes", destinationUrl: "https://example.com/notes", sixPs: { people: "builders", positioning: "factories", promise: "preserve evidence", proof: ["Receipts"], priority: "restart", process: "factories" } };
 
 test("scheduled runner reserves one approved insight and submits it once", async () => {
   const directory = await mkdtemp(join(tmpdir(), "internet-factories-runner-"));
