@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ControlDecisionStore, executeControlDecision, makeControlDecision, observeControlDecision, type ActuatorCandidate, type ObservedFactoryState } from "../packages/controller/src/index.js";
+import { ControlDecisionStore, VersionedControlActuatorAdapter, executeControlDecision, makeControlDecision, observeControlDecision, type ActuatorCandidate, type ObservedFactoryState } from "../packages/controller/src/index.js";
 
 const state: ObservedFactoryState = { quality: 0.9, costUsd: 1, latencyMs: 7000, throughputPerHour: 4, failureRate: 0.1, retryRate: 0.1, recoveryEfficiency: 0.5 };
 const candidate: ActuatorCandidate = { actuatorId: "parallelism", variable: "parallelism", delta: 1, predictedState: { ...state, latencyMs: 6800 }, predictedAssessment: { withinEnvelope: true, violations: [], errors: {} }, score: 0.1 };
@@ -41,6 +41,17 @@ test("actuator application receives the decision config version for atomic compa
   const adapter = { apply: async (_candidate: ActuatorCandidate, context: { idempotencyKey: string; expectedConfigVersion: number }) => { expectedConfigVersion = context.expectedConfigVersion; } };
   await executeControlDecision(decision, adapter, store);
   assert.equal(expectedConfigVersion, 42);
+});
+
+test("versioned actuator rejects stale decisions and replays an already applied decision", async () => {
+  let mutations = 0;
+  const adapter = new VersionedControlActuatorAdapter({ initialConfigVersion: 42, applyMutation: async () => { mutations += 1; } });
+  const first = await adapter.apply(candidate, { idempotencyKey: "ctl_a", expectedConfigVersion: 42 });
+  assert.deepEqual(first, { decisionId: "ctl_a", previousConfigVersion: 42, resultingConfigVersion: 43, applied: true, replayed: false });
+  const replay = await adapter.apply(candidate, { idempotencyKey: "ctl_a", expectedConfigVersion: 42 });
+  assert.equal(replay.replayed, true);
+  await assert.rejects(() => adapter.apply(candidate, { idempotencyKey: "ctl_b", expectedConfigVersion: 42 }), /stale configuration version/);
+  assert.equal(mutations, 1);
 });
 
 test("actuator execution persists an unsaved plan before calling the adapter", async () => {

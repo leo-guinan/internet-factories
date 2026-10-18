@@ -36,7 +36,36 @@ export interface ActuatorResponseModel { actuatorId: string; sampleCount: number
 export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; from?: number; to?: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
 export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; basedOnConfigVersion: number; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; observationSampleCount?: number; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
 export interface ControlDecisionStoreOptions { storagePath: string; }
-export interface ControlActuatorAdapter { apply(candidate: ActuatorCandidate, context: { idempotencyKey: string; expectedConfigVersion: number }): Promise<void>; }
+export interface ActuatorApplyResult { decisionId: string; previousConfigVersion: number; resultingConfigVersion: number; applied: boolean; replayed: boolean; }
+export interface ControlActuatorAdapter { apply(candidate: ActuatorCandidate, context: { idempotencyKey: string; expectedConfigVersion: number }): Promise<void | ActuatorApplyResult>; }
+export interface VersionedControlActuatorAdapterOptions { initialConfigVersion: number; applyMutation(candidate: ActuatorCandidate, previousConfigVersion: number): Promise<void> | void; }
+export class ControlVersionConflictError extends Error { constructor(public readonly expectedConfigVersion: number, public readonly currentConfigVersion: number) { super(`stale configuration version: expected ${expectedConfigVersion}, current ${currentConfigVersion}`); } }
+export class VersionedControlActuatorAdapter implements ControlActuatorAdapter {
+  private configVersion: number;
+  private readonly applyMutation: VersionedControlActuatorAdapterOptions["applyMutation"];
+  private readonly receipts = new Map<string, ActuatorApplyResult>();
+  private queue = Promise.resolve();
+  constructor(options: VersionedControlActuatorAdapterOptions) {
+    if (!Number.isInteger(options.initialConfigVersion) || options.initialConfigVersion < 0) throw new Error("initialConfigVersion must be a non-negative integer");
+    this.configVersion = options.initialConfigVersion;
+    this.applyMutation = options.applyMutation;
+  }
+  apply(candidate: ActuatorCandidate, context: { idempotencyKey: string; expectedConfigVersion: number }): Promise<ActuatorApplyResult> {
+    const operation = this.queue.then(async () => {
+      const replay = this.receipts.get(context.idempotencyKey);
+      if (replay) return { ...replay, replayed: true };
+      if (context.expectedConfigVersion !== this.configVersion) throw new ControlVersionConflictError(context.expectedConfigVersion, this.configVersion);
+      const previousConfigVersion = this.configVersion;
+      await this.applyMutation(candidate, previousConfigVersion);
+      const result = { decisionId: context.idempotencyKey, previousConfigVersion, resultingConfigVersion: previousConfigVersion + 1, applied: true, replayed: false };
+      this.configVersion = result.resultingConfigVersion;
+      this.receipts.set(context.idempotencyKey, result);
+      return result;
+    });
+    this.queue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+}
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
