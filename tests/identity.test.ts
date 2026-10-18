@@ -20,6 +20,13 @@ test("identity bootstrap is idempotent and does not create duplicate admin grant
   });
 });
 
+test("identity reads are defensive copies", async () => {
+  const directory = await mkdtemp(join(process.cwd(), ".tmp-identity-")); const store = new IdentityStore(join(directory, "identity.json")); const seeded = seedLeoIdentity(store);
+  const user = store.getUser(seeded.user.id)!; user.status = "suspended"; user.emailVerified = true;
+  const admin = store.getAdminForUser(seeded.user.id)!; admin.active = false; admin.capabilities.length = 0;
+  assert.equal(store.getUser(seeded.user.id)?.status, "active"); assert.equal(store.getUser(seeded.user.id)?.emailVerified, false); assert.equal(store.getAdminForUser(seeded.user.id)?.active, true); assert.ok(store.getAdminForUser(seeded.user.id)?.capabilities.length);
+});
+
 test("email verification is single-use, hashed at rest, and unlocks authority", async () => {
   const directory = await mkdtemp(join(process.cwd(), ".tmp-identity-")); const store = new IdentityStore(join(directory, "identity.json")); const seeded = seedLeoIdentity(store); let body = "";
   const sender = { send: async (input: { text: string }) => { body = input.text; return { providerMessageId: "email-verification-1", state: "verified" as const }; } };

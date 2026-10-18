@@ -23,7 +23,7 @@ The adapter never logs credentials. Runtime configuration must provide:
 
 `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` in `~/.hermes/.env` are OAuth application credentials, not a publish token. They can start an OAuth consent flow but cannot publish by themselves. The current repository setup therefore remains fail-closed until a valid access token and author URN are obtained and loaded at runtime.
 
-No scheduler or live publishing process is armed by this change. Calling `queue.tick()` is the explicit mutation boundary. Before arming it, approve the exact copy, account, scheduled time, and public visibility.
+The queue requires a `PublicationApproval` bound to the exact artifact hash, approved body hash, approver, account connection, and scheduled time. At execution, the caller must provide an authorization check; a revoked, suspended, or unverified approver moves the post to `authorization_required` without contacting LinkedIn.
 
 Verification:
 

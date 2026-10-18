@@ -51,9 +51,9 @@ export class IdentityStore {
       this.state = { users: parsed.users ?? [], admins: parsed.admins ?? [], audit: parsed.audit ?? [], verifications: parsed.verifications ?? [] };
     } else this.state = { users: [], admins: [], audit: [], verifications: [] };
   }
-  getUser(id: string): UserRecord | undefined { return this.state.users.find((user) => user.id === id); }
-  getUserByEmail(email: string): UserRecord | undefined { return this.state.users.find((user) => user.normalizedEmail === normalizeEmail(email)); }
-  getAdminForUser(userId: string): AdminRecord | undefined { return this.state.admins.find((admin) => admin.userId === userId && admin.active); }
+  getUser(id: string): UserRecord | undefined { const user = this.findUser(id); return user ? { ...user } : undefined; }
+  getUserByEmail(email: string): UserRecord | undefined { const user = this.state.users.find((item) => item.normalizedEmail === normalizeEmail(email)); return user ? { ...user } : undefined; }
+  getAdminForUser(userId: string): AdminRecord | undefined { const admin = this.state.admins.find((item) => item.userId === userId && item.active); return admin ? { ...admin, capabilities: [...admin.capabilities] } : undefined; }
   listUsers(): UserRecord[] { return this.state.users.map((user) => ({ ...user })); }
   listAdmins(): AdminRecord[] { return this.state.admins.filter((admin) => admin.active).map((admin) => ({ ...admin, capabilities: [...admin.capabilities] })); }
   listAudit(): IdentityAuditEvent[] { return this.state.audit.map((event) => ({ ...event, metadata: event.metadata ? { ...event.metadata } : undefined })); }
@@ -75,7 +75,7 @@ export class IdentityStore {
   }
 
   createEmailVerification(userId: string, baseUrl: string, sender: VerificationEmailSender, now = new Date(), ttlMs = 30 * 60 * 1000): Promise<EmailVerificationRecord> {
-    const user = this.getUser(userId); if (!user) return Promise.reject(new Error(`unknown user ${userId}`));
+    const user = this.findUser(userId); if (!user) return Promise.reject(new Error(`unknown user ${userId}`));
     if (user.emailVerified) return Promise.reject(new Error(`email already verified for ${userId}`));
     const rawToken = randomBytes(32).toString("base64url");
     const tokenHash = hashVerificationToken(rawToken); const id = `ver_${randomBytes(12).toString("hex")}`;
@@ -90,13 +90,14 @@ export class IdentityStore {
     const tokenHash = hashVerificationToken(rawToken); const record = this.state.verifications.find((item) => safeEqual(item.tokenHash, tokenHash) && item.status !== "consumed");
     if (!record) throw new Error("invalid or already-used email verification token");
     if (new Date(record.expiresAt).getTime() <= now.getTime()) throw new Error("email verification token expired");
-    const user = this.getUser(record.userId); if (!user) throw new Error(`unknown user ${record.userId}`);
+    const user = this.findUser(record.userId); if (!user) throw new Error(`unknown user ${record.userId}`);
     user.emailVerified = true; user.updatedAt = now.toISOString(); record.status = "consumed"; record.consumedAt = now.toISOString(); this.record("user.email_verified", "system:email-verification", user.id, { verificationId: record.id }); this.persist(); return { ...user };
   }
 
   revokeAdmin(adminId: string, actorId: string): void { const admin = this.state.admins.find((item) => item.id === adminId); if (!admin) throw new Error(`unknown admin ${adminId}`); admin.active = false; this.record("admin.revoked", actorId, admin.userId, { adminId }); this.persist(); }
-  setUserStatus(userId: string, status: UserStatus, actorId: string): void { const user = this.getUser(userId); if (!user) throw new Error(`unknown user ${userId}`); user.status = status; user.updatedAt = new Date().toISOString(); this.record(status === "suspended" ? "user.suspended" : "user.activated", actorId, userId); this.persist(); }
+  setUserStatus(userId: string, status: UserStatus, actorId: string): void { const user = this.findUser(userId); if (!user) throw new Error(`unknown user ${userId}`); user.status = status; user.updatedAt = new Date().toISOString(); this.record(status === "suspended" ? "user.suspended" : "user.activated", actorId, userId); this.persist(); }
 
+  private findUser(id: string): UserRecord | undefined { return this.state.users.find((user) => user.id === id); }
   private record(action: IdentityAuditEvent["action"], actorId: string, targetId: string, metadata?: Record<string, string>) { this.state.audit.push({ id: `ida_${this.state.audit.length + 1}`, action, actorId, targetId, recordedAt: new Date().toISOString(), metadata }); }
   private persist() { const temporary = `${this.storagePath}.${process.pid}.tmp`; writeFileSync(temporary, JSON.stringify(this.state, null, 2)); renameSync(temporary, this.storagePath); }
 }

@@ -3,7 +3,8 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { LinkedInPostPublisher } from "../packages/adapters/src/linkedin.js";
-import { ScheduledLinkedInPostQueue } from "../apps/linkedin-publisher/src/index.js";
+import { hashPostBody, authorizePublication, ScheduledLinkedInPostQueue } from "../apps/linkedin-publisher/src/index.js";
+import { IdentityStore } from "../packages/identity/src/index.js";
 
 test("LinkedIn publisher verifies the published post by readback", async () => {
   const calls: Array<{ url: string; method: string }> = [];
@@ -23,7 +24,7 @@ test("scheduled queue publishes only approved posts that are due and persists re
   const directory = await mkdtemp(join(process.cwd(), ".tmp-linkedin-publisher-"));
   const path = join(directory, "queue.json");
   const queue = new ScheduledLinkedInPostQueue(path);
-  queue.schedule({ id: "post-1", scheduledAt: "2026-10-18T10:00:00.000Z", body: "Exact scheduled copy" });
+  queue.schedule({ id: "post-1", scheduledAt: "2026-10-18T10:00:00.000Z", body: "Exact scheduled copy", approval: { artifactId: "art-1", artifactHash: "artifact-hash-1", approvedBodyHash: hashPostBody("Exact scheduled copy"), approvedBy: "leo", approvedAt: "2026-10-18T09:00:00.000Z", accountConnectionId: "linkedin-leo", scheduledAt: "2026-10-18T10:00:00.000Z" } });
   let published = 0;
   const processed = await queue.tick(new Date("2026-10-18T10:01:00.000Z"), { publishText: async (body) => { published += 1; return { state: "verified", postUrn: "urn:li:share:123", status: 201, readbackMatches: true, readback: { commentary: body } }; } });
   assert.equal(published, 1);
@@ -32,8 +33,23 @@ test("scheduled queue publishes only approved posts that are due and persists re
   assert.deepEqual(persisted[0], { ...persisted[0], postUrn: "urn:li:share:123", status: "posted" });
 });
 
+test("identity authorizer requires active verified admin capability", async () => {
+  const directory = await mkdtemp(join(process.cwd(), ".tmp-linkedin-publisher-")); const store = new IdentityStore(join(directory, "identity.json"));
+  const user = store.createUser({ id: "leo", email: "leo@ideanexusventures.com", displayName: "Leo", actorId: "system:test", status: "active", emailVerified: true });
+  store.grantAdmin({ id: "admin-leo", userId: user.id, grantedBy: "system:test" });
+  const approval = { artifactId: "art", artifactHash: "hash", approvedBodyHash: hashPostBody("copy"), approvedBy: user.id, approvedAt: "2026-10-18T09:00:00.000Z", accountConnectionId: "linkedin-leo", scheduledAt: "2026-10-18T10:00:00.000Z" };
+  assert.equal(authorizePublication(store, approval), true); store.revokeAdmin("admin-leo", "system:test"); assert.equal(authorizePublication(store, approval), false);
+});
+
+test("scheduled queue blocks publication when approval authority is revoked", async () => {
+  const directory = await mkdtemp(join(process.cwd(), ".tmp-linkedin-publisher-")); const queue = new ScheduledLinkedInPostQueue(join(directory, "queue.json"));
+  queue.schedule({ id: "post-2", scheduledAt: "2026-10-18T10:00:00.000Z", body: "Exact scheduled copy", approval: { artifactId: "art-2", artifactHash: "artifact-hash-2", approvedBodyHash: hashPostBody("Exact scheduled copy"), approvedBy: "leo", approvedAt: "2026-10-18T09:00:00.000Z", accountConnectionId: "linkedin-leo", scheduledAt: "2026-10-18T10:00:00.000Z" } });
+  let published = 0; const processed = await queue.tick(new Date("2026-10-18T10:01:00.000Z"), { publishText: async () => { published += 1; throw new Error("must not publish"); } }, () => false);
+  assert.equal(published, 0); assert.equal(processed[0]?.status, "authorization_required");
+});
+
 test("scheduled queue refuses unresolved placeholders", async () => {
   const directory = await mkdtemp(join(process.cwd(), ".tmp-linkedin-publisher-"));
   const queue = new ScheduledLinkedInPostQueue(join(directory, "queue.json"));
-  assert.throws(() => queue.schedule({ id: "post-1", scheduledAt: "2026-10-18T10:00:00.000Z", body: "[UPDATE WITH REAL DATA BEFORE POSTING]" }), /publication-ready/);
+  assert.throws(() => queue.schedule({ id: "post-1", scheduledAt: "2026-10-18T10:00:00.000Z", body: "[UPDATE WITH REAL DATA BEFORE POSTING]", approval: { artifactId: "art-1", artifactHash: "hash", approvedBodyHash: hashPostBody("[UPDATE WITH REAL DATA BEFORE POSTING]"), approvedBy: "leo", approvedAt: "2026-10-18T09:00:00.000Z", accountConnectionId: "linkedin-leo", scheduledAt: "2026-10-18T10:00:00.000Z" } }), /publication-ready/);
 });
