@@ -32,6 +32,17 @@ test("actuator application is idempotent and persists applied status", async () 
   assert.equal(store.get(decision.id)?.status, "applied");
 });
 
+test("actuator application receives the decision config version for atomic compare-and-set", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "internet-factories-control-"));
+  const store = new ControlDecisionStore({ storagePath: join(dir, "decisions.json") });
+  const decision = makeControlDecision(state, [candidate], undefined, 42);
+  store.save(decision);
+  let expectedConfigVersion: number | undefined;
+  const adapter = { apply: async (_candidate: ActuatorCandidate, context: { idempotencyKey: string; expectedConfigVersion: number }) => { expectedConfigVersion = context.expectedConfigVersion; } };
+  await executeControlDecision(decision, adapter, store);
+  assert.equal(expectedConfigVersion, 42);
+});
+
 test("actuator execution persists an unsaved plan before calling the adapter", async () => {
   const dir = await mkdtemp(join(tmpdir(), "internet-factories-control-"));
   const store = new ControlDecisionStore({ storagePath: join(dir, "decisions.json") });

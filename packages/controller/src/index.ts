@@ -34,9 +34,9 @@ export interface ActuatorChangeInput { actuatorId: string; from: number; to: num
 export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; evidenceId?: string; controlDecisionId?: string; }
 export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
 export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; from?: number; to?: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
-export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; observationSampleCount?: number; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
+export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; basedOnConfigVersion: number; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; observationSampleCount?: number; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
 export interface ControlDecisionStoreOptions { storagePath: string; }
-export interface ControlActuatorAdapter { apply(candidate: ActuatorCandidate, context: { idempotencyKey: string }): Promise<void>; }
+export interface ControlActuatorAdapter { apply(candidate: ActuatorCandidate, context: { idempotencyKey: string; expectedConfigVersion: number }): Promise<void>; }
 
 export function assessOperatingEnvelope(envelope: OperatingEnvelope, observed: ObservedFactoryState): EnvelopeAssessment {
   const errors: Partial<Record<keyof ObservedFactoryState, number>> = {};
@@ -210,11 +210,12 @@ export function rankActuatorCandidates(envelope: OperatingEnvelope, current: Obs
   return candidates.sort((a, b) => a.score - b.score);
 }
 
-export function makeControlDecision(observedState: ObservedFactoryState, candidates: ActuatorCandidate[], appliedAt?: string): ControlDecision {
+export function makeControlDecision(observedState: ObservedFactoryState, candidates: ActuatorCandidate[], appliedAt?: string, basedOnConfigVersion = 0): ControlDecision {
   if (candidates.length === 0) throw new Error("at least one control candidate is required");
+  if (!Number.isInteger(basedOnConfigVersion) || basedOnConfigVersion < 0) throw new Error("basedOnConfigVersion must be a non-negative integer");
   const selectedCandidate = candidates[0];
   const noop = candidates.find((candidate) => candidate.actuatorId === "noop");
-  return { id: `ctl_${randomUUID()}`, status: "planned", observedState: { ...observedState }, candidateSet: candidates.map((candidate) => ({ ...candidate, predictedState: { ...candidate.predictedState } })), selectedCandidate, predictedState: { ...selectedCandidate.predictedState }, scoreBefore: noop?.score ?? selectedCandidate.score, scoreAfterPredicted: selectedCandidate.score, appliedAt };
+  return { id: `ctl_${randomUUID()}`, status: "planned", basedOnConfigVersion, observedState: { ...observedState }, candidateSet: candidates.map((candidate) => ({ ...candidate, predictedState: { ...candidate.predictedState } })), selectedCandidate, predictedState: { ...selectedCandidate.predictedState }, scoreBefore: noop?.score ?? selectedCandidate.score, scoreAfterPredicted: selectedCandidate.score, appliedAt };
 }
 
 export function completeControlDecision(decision: ControlDecision, resultingObservation: ObservedFactoryState, observedAt?: string, observationSampleCount = decision.observationSampleCount ?? 1): ControlDecision {
@@ -274,7 +275,7 @@ export async function executeControlDecision(decision: ControlDecision, adapter:
   const current = store.get(decision.id)!;
   if (current.status === "applied" || current.status === "observed") return current;
   try {
-    if (current.selectedCandidate.actuatorId !== "noop") await adapter.apply(current.selectedCandidate, { idempotencyKey: current.id });
+    if (current.selectedCandidate.actuatorId !== "noop") await adapter.apply(current.selectedCandidate, { idempotencyKey: current.id, expectedConfigVersion: current.basedOnConfigVersion });
     const applied = { ...current, status: "applied" as const, appliedAt: appliedAt ?? new Date().toISOString() };
     store.save(applied);
     return applied;

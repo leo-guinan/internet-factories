@@ -4,7 +4,7 @@ import { learnResponseFromControlDecision, observationFromControlDecision, Respo
 
 const before: ObservedFactoryState = { quality: 0.9, costUsd: 1, latencyMs: 7000, throughputPerHour: 4, failureRate: 0.1, retryRate: 0.1, recoveryEfficiency: 0.5 };
 const candidate: ActuatorCandidate = { actuatorId: "parallelism", variable: "parallelism", delta: 1, from: 2, to: 3, predictedState: { ...before, latencyMs: 6800, throughputPerHour: 11 }, predictedAssessment: { withinEnvelope: true, violations: [], errors: {} }, score: 0.1 };
-const decision: ControlDecision = { id: "ctl_test", status: "observed", observedState: before, candidateSet: [candidate], selectedCandidate: candidate, predictedState: candidate.predictedState, scoreBefore: 1, scoreAfterPredicted: 0.1, resultingObservation: { ...before, latencyMs: 6900, throughputPerHour: 10 }, observationSampleCount: 100, observedAt: "2026-10-15T12:05:00.000Z" };
+const decision: ControlDecision = { id: "ctl_test", status: "observed", basedOnConfigVersion: 42, observedState: before, candidateSet: [candidate], selectedCandidate: candidate, predictedState: candidate.predictedState, scoreBefore: 1, scoreAfterPredicted: 0.1, resultingObservation: { ...before, latencyMs: 6900, throughputPerHour: 10 }, observationSampleCount: 100, observedAt: "2026-10-15T12:05:00.000Z" };
 
 test("observed control decision becomes actuator evidence", () => {
   const observation = observationFromControlDecision(decision);
