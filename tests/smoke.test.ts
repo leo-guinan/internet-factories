@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runSmoke } from "../apps/smoke/src/index.js";
@@ -12,6 +12,8 @@ test("smoke run executes the real API seam and saves a draft receipt without pub
     apiKey: ["test", "key"].join("-"),
     endpoint: "https://model.test/v1",
     model: "test/model",
+    inputCostPerTokenUsd: 0.001,
+    outputCostPerTokenUsd: 0.002,
     transport: async (_url, init) => {
       const request = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
       assert.equal(request.messages[0]?.role, "system");
@@ -32,4 +34,7 @@ test("smoke run executes the real API seam and saves a draft receipt without pub
   assert.equal(result.run.status, "completed");
   assert.equal(result.artifact.accepted, true);
   assert.equal(result.receiptPath, receiptPath);
+  const saved = JSON.parse(await readFile(receiptPath, "utf8")) as { receipt: { pricing: { inputCostPerTokenUsd: number; outputCostPerTokenUsd: number }; evaluation: { sixPs: { issues: string[] } } } };
+  assert.equal(saved.receipt.pricing.inputCostPerTokenUsd, 0.001);
+  assert.deepEqual(saved.receipt.evaluation.sixPs.issues, []);
 });

@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createFactoryServer } from "../../api/src/server.js";
 import { createLinkedInDraftFactory } from "../../../factories/linkedin-draft/factory.js";
+import { evaluateLinkedInDraft } from "../../../factories/linkedin-draft/evaluator.js";
 import type { InsightInput } from "../../../factories/linkedin-draft/schemas.js";
 import { OpenAICompatibleDraftGenerator, type OpenAICompatibleOptions } from "../../../packages/adapters/src/openai-compatible.js";
 
@@ -38,12 +39,13 @@ const sampleInsight: InsightInput = {
 };
 
 export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
+  const input = options.input ?? sampleInsight;
   const generator = new OpenAICompatibleDraftGenerator({ ...options, transport: options.transport });
   const factory = createLinkedInDraftFactory(generator);
   const server = createFactoryServer({ ...factory, port: 0, autoProcess: true });
   await server.start();
   try {
-    const response = await fetch(`${server.url}/jobs`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": `smoke:${Date.now()}` }, body: JSON.stringify({ input: options.input ?? sampleInsight }) });
+    const response = await fetch(`${server.url}/jobs`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": `smoke:${Date.now()}` }, body: JSON.stringify({ input }) });
     const payload = await response.json() as { run_id?: string; error?: string };
     if (!response.ok || !payload.run_id) throw new Error(`smoke job failed: ${payload.error ?? `HTTP ${response.status}`}`);
     const run = server.getRun(payload.run_id);
@@ -51,13 +53,15 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     const stored = run.artifacts[0];
     if (!stored) {
       mkdirSync(dirname(options.receiptPath), { recursive: true });
-      writeFileSync(options.receiptPath, JSON.stringify({ receipt: { runId: run.id, factoryId: run.factoryId, status: run.status, quality: run.qualityScore ?? 0, accepted: false, costUsd: run.totalCostUsd, publication: "disabled", source: "public-safe-smoke-input" }, output: run.output }, null, 2));
+      const evaluation = evaluateLinkedInDraft(input, run.output);
+      writeFileSync(options.receiptPath, JSON.stringify({ receipt: { runId: run.id, factoryId: run.factoryId, status: run.status, quality: run.qualityScore ?? 0, accepted: false, evaluation, costUsd: run.totalCostUsd, pricing: { inputCostPerTokenUsd: options.inputCostPerTokenUsd ?? 0, outputCostPerTokenUsd: options.outputCostPerTokenUsd ?? 0 }, publication: "disabled", source: "public-safe-smoke-input" }, output: run.output }, null, 2));
       throw new Error("smoke run produced no accepted artifact");
     }
     const artifact = server.getArtifact(stored.id);
     const content = server.getArtifactContent(stored.id);
     if (!artifact || content === undefined) throw new Error(`smoke artifact not readable: ${stored.id}`);
-    const receipt = { runId: run.id, artifactId: artifact.artifact_id, factoryId: run.factoryId, status: run.status, quality: run.qualityScore ?? 0, accepted: run.status === "completed", artifactHash: artifact.sha256, model: run.nodeRuns[0]?.metadata?.model, tokenUsage: { promptTokens: run.nodeRuns[0]?.metadata?.promptTokens, completionTokens: run.nodeRuns[0]?.metadata?.completionTokens, totalTokens: run.nodeRuns[0]?.metadata?.totalTokens }, costUsd: run.totalCostUsd, latencyMs: run.finishedAt && run.startedAt ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime() : undefined, publication: "disabled", source: "public-safe-smoke-input" };
+    const evaluation = evaluateLinkedInDraft(input, content);
+    const receipt = { runId: run.id, artifactId: artifact.artifact_id, factoryId: run.factoryId, status: run.status, quality: run.qualityScore ?? 0, accepted: run.status === "completed", evaluation, artifactHash: artifact.sha256, model: run.nodeRuns[0]?.metadata?.model, tokenUsage: { promptTokens: run.nodeRuns[0]?.metadata?.promptTokens, completionTokens: run.nodeRuns[0]?.metadata?.completionTokens, totalTokens: run.nodeRuns[0]?.metadata?.totalTokens }, costUsd: run.totalCostUsd, pricing: { inputCostPerTokenUsd: options.inputCostPerTokenUsd ?? 0, outputCostPerTokenUsd: options.outputCostPerTokenUsd ?? 0 }, latencyMs: run.finishedAt && run.startedAt ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime() : undefined, publication: "disabled", source: "public-safe-smoke-input" };
     mkdirSync(dirname(options.receiptPath), { recursive: true });
     writeFileSync(options.receiptPath, JSON.stringify({ receipt, output: content }, null, 2));
     return { published: false, run, artifact: { id: artifact.artifact_id, accepted: run.status === "completed", quality: run.qualityScore ?? 0, sha256: artifact.sha256, content }, receiptPath: options.receiptPath };
