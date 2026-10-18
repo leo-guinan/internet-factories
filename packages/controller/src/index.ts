@@ -30,8 +30,8 @@ export interface ActuatorSpec { id: string; variable: string; kind: "number" | "
 export interface ActuatorAction { actuatorId: string; variable: string; from: number | string; to: number | string; metric: keyof ObservedFactoryState; reason: string; }
 export interface ObservationSnapshot { state: ObservedFactoryState; sampleCount: number; windowSize: number; confidence: number; observedAt?: string; }
 export interface ObservationWindowOptions { alpha?: number; maxSamples?: number; minSamplesForConfidence?: number; }
-export interface ActuatorChangeInput { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; sampleCount: number; observedAt?: string; }
-export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; }
+export interface ActuatorChangeInput { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; sampleCount: number; observedAt?: string; evidenceId?: string; controlDecisionId?: string; }
+export interface ActuatorObservation { actuatorId: string; from: number; to: number; stateBefore: ObservedFactoryState; stateAfter: ObservedFactoryState; delta: ObservedFactoryState; sampleCount: number; observedAt?: string; evidenceId?: string; controlDecisionId?: string; }
 export interface ActuatorResponseModel { actuatorId: string; sampleCount: number; responsePerUnit: ObservedFactoryState; }
 export interface ActuatorCandidate { actuatorId: string; variable: string; delta: number; from?: number; to?: number; predictedState: ObservedFactoryState; predictedAssessment: EnvelopeAssessment; score: number; }
 export interface ControlDecision { id: string; status: "planned" | "applied" | "observed" | "failed"; observedState: ObservedFactoryState; candidateSet: ActuatorCandidate[]; selectedCandidate: ActuatorCandidate; predictedState: ObservedFactoryState; scoreBefore: number; scoreAfterPredicted: number; appliedAt?: string; observedAt?: string; observationSampleCount?: number; resultingObservation?: ObservedFactoryState; predictionError?: ObservedFactoryState; error?: string; }
@@ -164,7 +164,7 @@ export function learnActuatorResponses(observations: ActuatorObservation[]): Act
 export function observationFromControlDecision(decision: ControlDecision): ActuatorObservation | undefined {
   const candidate = decision.selectedCandidate;
   if (decision.status !== "observed" || candidate.actuatorId === "noop" || candidate.from === undefined || candidate.to === undefined || !decision.resultingObservation) return undefined;
-  return observeActuatorChange({ actuatorId: candidate.actuatorId, from: candidate.from, to: candidate.to, stateBefore: decision.observedState, stateAfter: decision.resultingObservation, sampleCount: decision.observationSampleCount ?? 1, observedAt: decision.observedAt });
+  return observeActuatorChange({ actuatorId: candidate.actuatorId, from: candidate.from, to: candidate.to, stateBefore: decision.observedState, stateAfter: decision.resultingObservation, sampleCount: decision.observationSampleCount ?? 1, observedAt: decision.observedAt, evidenceId: decision.id, controlDecisionId: decision.id });
 }
 
 export function learnResponseFromControlDecision(decision: ControlDecision, store?: ResponseModelStore): ActuatorResponseModel | undefined {
@@ -239,6 +239,8 @@ export class ResponseModelStore {
     if (existsSync(this.storagePath)) this.observations.push(...JSON.parse(readFileSync(this.storagePath, "utf8")) as ActuatorObservation[]);
   }
   record(observation: ActuatorObservation) {
+    const evidenceId = observation.evidenceId ?? observation.controlDecisionId;
+    if (evidenceId && this.observations.some((existing) => (existing.evidenceId ?? existing.controlDecisionId) === evidenceId)) return;
     this.observations.push(observation);
     mkdirSync(dirname(this.storagePath), { recursive: true });
     const temporary = `${this.storagePath}.${process.pid}.tmp`;

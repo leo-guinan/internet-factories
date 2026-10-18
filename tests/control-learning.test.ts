@@ -36,3 +36,11 @@ test("response model store persists evidence and merges it after restart", async
   assert.equal(restarted.get("parallelism")?.sampleCount, 100);
   assert.equal(restarted.get("parallelism")?.responsePerUnit.latencyMs, -100);
 });
+
+test("response evidence is idempotent per control decision", async () => {
+  const directory = await (await import("node:fs/promises")).mkdtemp("/tmp/internet-factories-response-");
+  const store = new ResponseModelStore({ storagePath: `${directory}/responses.json` });
+  learnResponseFromControlDecision(decision, store);
+  learnResponseFromControlDecision(decision, store);
+  assert.equal(store.get("parallelism")?.sampleCount, 100);
+});
