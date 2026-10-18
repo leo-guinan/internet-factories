@@ -56,3 +56,16 @@ test("replaying a consumed firing keeps its original insight assignment", async 
   assert.equal(replay?.id, "approved-1");
   assert.equal(queue.list().find((record) => record.id === "approved-2")?.status, "approved");
 });
+
+test("submission failure retains the firing assignment for retry", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "internet-factories-runner-"));
+  const queue = new ApprovedInsightQueue(join(directory, "queue.json"));
+  queue.enqueue("approved-1", input);
+  const failed = createLinkedInDraftRunner({ apiUrl: "http://factory.local", queue, schedulerStoragePath: join(directory, "schedule.json"), nextFireAt: "2026-10-18T09:00:00.000Z", transport: async () => new Response("failure", { status: 503 }) });
+  await assert.rejects(() => failed.tick(new Date("2026-10-18T09:00:00.000Z")), /HTTP 503/);
+  assert.equal(queue.list()[0].status, "reserved");
+  assert.equal(queue.list()[0].reservationKey, "cron:linkedin-draft-schedule:2026-10-18T09:00:00.000Z");
+  const retried = createLinkedInDraftRunner({ apiUrl: "http://factory.local", queue, schedulerStoragePath: join(directory, "schedule.json"), nextFireAt: "2026-10-18T09:00:00.000Z", transport: async () => new Response("{}", { status: 201 }) });
+  await retried.tick(new Date("2026-10-18T09:00:00.000Z"));
+  assert.equal(queue.list()[0].status, "consumed");
+});

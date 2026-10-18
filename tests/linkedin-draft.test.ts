@@ -56,3 +56,16 @@ test("incorrect target action is a mandatory quality failure", () => {
   assert.equal(result.accepted, false);
   assert.ok(result.issues.includes("target action or destination URL changed"));
 });
+
+test("factory rejects an output with the wrong target action", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "internet-factories-linkedin-"));
+  const factory = createLinkedInDraftFactory({ generate: async () => ({ draft: { ...draft, targetAction: "Publish immediately" }, costUsd: 0.012 }) });
+  const server = createFactoryServer({ ...factory, storagePath: join(directory, "state.json"), port: 0, autoProcess: true });
+  await server.start();
+  try {
+    const response = await fetch(`${server.url}/jobs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input }) });
+    const body = await response.json() as { run_id: string; status: string };
+    assert.equal(body.status, "rejected");
+    assert.equal(server.getRun(body.run_id)?.artifacts.length, 0);
+  } finally { await server.close(); }
+});

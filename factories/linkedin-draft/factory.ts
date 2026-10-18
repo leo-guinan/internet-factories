@@ -9,6 +9,10 @@ export function createLinkedInDraftFactory(generator: DraftGenerator): { spec: t
     functions: { "linkedin-draft-generator": generatorFunction(generator) },
     outputSchema: "linkedin-draft@1",
     inputSchemas: ["insight@1"],
-    quality: (output, input) => isInsightInput(input) ? evaluateLinkedInDraft(input, output).score : 0
+    quality: (output, input) => {
+      if (!isInsightInput(input)) return 0;
+      const evaluation = evaluateLinkedInDraft(input, output);
+      return evaluation.accepted ? evaluation.score : 0;
+    }
   };
 }

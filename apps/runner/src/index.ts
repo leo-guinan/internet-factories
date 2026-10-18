@@ -17,7 +17,7 @@ export function createLinkedInDraftRunner(options: LinkedInDraftRunnerOptions) {
       const response = await transport(`${options.apiUrl.replace(/\/$/, "")}/jobs`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": idempotencyKey }, body: JSON.stringify({ input: reserved.input, idempotency_key: idempotencyKey }) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       options.queue.consume(reserved.id);
-    } catch (error) { options.queue.release(reserved.id); throw error; }
+    } catch (error) { throw error; }
   }, { storagePath: options.schedulerStoragePath });
   if (!scheduler.get(scheduleId)) scheduler.add({ id: scheduleId, cron: options.cron ?? "*/5 * * * *", input: { queue: "approved-insights", scheduleId }, nextFireAt: options.nextFireAt });
   return { scheduler, async tick(now = new Date()) { await scheduler.tick(now); } };
