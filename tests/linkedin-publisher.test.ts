@@ -8,7 +8,7 @@ import { ScheduledLinkedInPostQueue } from "../apps/linkedin-publisher/src/index
 test("LinkedIn publisher verifies the published post by readback", async () => {
   const calls: Array<{ url: string; method: string }> = [];
   const accessToken = process.env.TEST_LINKEDIN_TOKEN ?? ["fixture", "token"].join("-");
-  const publisher = new LinkedInPostPublisher({ accessToken, authorUrn: "urn:li:person:test", endpoint: "https://linkedin.test", transport: async (url, init) => {
+  const publisher = new LinkedInPostPublisher({ tokenProvider: async () => accessToken, authorUrn: "urn:li:person:test", endpoint: "https://linkedin.test", transport: async (url, init) => {
     calls.push({ url, method: init?.method ?? "GET" });
     if (init?.method === "POST") return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:123" } });
     return new Response(JSON.stringify({ author: "urn:li:person:test", commentary: "Exact scheduled copy" }), { status: 200 });
