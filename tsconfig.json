@@ -10,6 +10,6 @@
     "composite": true,
     "skipLibCheck": true
   },
-  "include": ["packages/**/*.ts", "apps/**/*.ts", "tests/**/*.ts"],
+  "include": ["packages/**/*.ts", "apps/**/*.ts", "factories/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
