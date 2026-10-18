@@ -108,8 +108,8 @@ export class CredentialBroker {
   }
 }
 
-export interface ReauthEmail { id: string; connectionId: string; recipient: string; reason: "access_expiring" | "reauth_required"; reminderWindow: string; createdAt: string; status: "pending" | "sent" | "failed"; providerMessageId?: string; }
-export interface EmailSender { send(input: { to: string; subject: string; text: string; idempotencyKey: string }): Promise<{ providerMessageId: string }>; }
+export interface ReauthEmail { id: string; connectionId: string; recipient: string; reason: "access_expiring" | "reauth_required"; reminderWindow: string; createdAt: string; status: "pending" | "sent" | "sent_unverified" | "failed"; providerMessageId?: string; }
+export interface EmailSender { send(input: { to: string; subject: string; text: string; idempotencyKey: string }): Promise<{ providerMessageId: string; state?: "verified" | "accepted_unverified" }>; }
 
 export class ReauthNotificationLedger {
   private readonly entries: ReauthEmail[];
@@ -123,7 +123,7 @@ export class ReauthNotificationLedger {
     if (existing) return { ...existing };
     const id = `reauth_${connection.id}_${window}`; const entry: ReauthEmail = { id, connectionId: connection.id, recipient, reason, reminderWindow: window, createdAt: new Date().toISOString(), status: "pending" };
     this.entries.push(entry); this.persist();
-    try { const result = await sender.send({ to: recipient, subject: `Reconnect ${connection.accountLabel} before scheduled publishing stops`, text: `Reauthorization is required for ${connection.accountLabel}. Open this one-time link: ${authUrl}`, idempotencyKey: id }); entry.status = "sent"; entry.providerMessageId = result.providerMessageId; }
+    try { const result = await sender.send({ to: recipient, subject: `Reconnect ${connection.accountLabel} before scheduled publishing stops`, text: `Reauthorization is required for ${connection.accountLabel}. Open this one-time link: ${authUrl}`, idempotencyKey: id }); entry.status = result.state === "accepted_unverified" ? "sent_unverified" : "sent"; entry.providerMessageId = result.providerMessageId; }
     catch (error) { entry.status = "failed"; }
     this.persist(); return { ...entry };
   }
