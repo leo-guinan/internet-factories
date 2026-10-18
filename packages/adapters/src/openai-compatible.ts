@@ -26,7 +26,7 @@ export class OpenAICompatibleDraftGenerator implements DraftGenerator {
     const response = await transport(this.options.endpoint.replace(/\/$/, "") + "/chat/completions", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.options.apiKey}`, "idempotency-key": context.idempotencyKey },
-      body: JSON.stringify({ model: this.options.model, temperature: 0.2, response_format: { type: "json_object" }, messages: [
+      body: JSON.stringify({ model: this.options.model, reasoning: { effort: "low" }, response_format: { type: "json_object" }, messages: [
         { role: "system", content: "Create a grounded LinkedIn post draft. Return JSON only with hook, body, cta, targetAction, destinationUrl. Do not invent evidence or change the target action or URL." },
         { role: "user", content: JSON.stringify(input) }
       ] })
