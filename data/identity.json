@@ -1,0 +1,51 @@
+{
+  "users": [
+    {
+      "id": "usr_leo_ideanexusventures",
+      "email": "leo@ideanexusventures.com",
+      "normalizedEmail": "leo@ideanexusventures.com",
+      "displayName": "Leo",
+      "status": "active",
+      "emailVerified": false,
+      "createdAt": "2026-10-18T21:00:34.300Z",
+      "updatedAt": "2026-10-18T21:00:34.300Z"
+    }
+  ],
+  "admins": [
+    {
+      "id": "adm_leo_ideanexusventures",
+      "userId": "usr_leo_ideanexusventures",
+      "role": "admin",
+      "scope": "global",
+      "capabilities": [
+        "identity.read",
+        "identity.manage",
+        "factory.approve",
+        "factory.publish",
+        "credentials.manage"
+      ],
+      "grantedAt": "2026-10-18T21:00:34.300Z",
+      "grantedBy": "system:bootstrap",
+      "active": true
+    }
+  ],
+  "audit": [
+    {
+      "id": "ida_1",
+      "action": "user.created",
+      "actorId": "system:bootstrap",
+      "targetId": "usr_leo_ideanexusventures",
+      "recordedAt": "2026-10-18T21:00:34.300Z"
+    },
+    {
+      "id": "ida_2",
+      "action": "admin.granted",
+      "actorId": "system:bootstrap",
+      "targetId": "usr_leo_ideanexusventures",
+      "recordedAt": "2026-10-18T21:00:34.300Z",
+      "metadata": {
+        "adminId": "adm_leo_ideanexusventures"
+      }
+    }
+  ]
+}
