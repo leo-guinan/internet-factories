@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ObservationLedger, VersionedPlanStore, OutcomeController, type FactoryObjective, type FactoryObservation, type WeeklyPlan } from "../packages/objectives/src/index.js";
+import { ObservationLedger, VersionedPlanStore, OutcomeController, ActionLedger, type FactoryObjective, type FactoryObservation, type WeeklyPlan } from "../packages/objectives/src/index.js";
 
 const objective: FactoryObjective = { id: "obj-impressions", factoryId: "linkedin-draft", metric: "impressions", target: 1000, unit: "impressions", window: { duration: "day", timezone: "UTC" }, constraints: { maxActionsPerWindow: 1, minimumActionSpacingMinutes: 60 } };
 const observation = (id: string, value: number, measurement: FactoryObservation["measurement"], observedAt = "2026-10-18T12:00:00.000Z"): FactoryObservation => ({ id, objectiveId: objective.id, metric: "impressions", value, measurement, subjectId: "account", scope: "account", period: { start: "2026-10-18T00:00:00.000Z", end: "2026-10-18T23:59:59.999Z" }, observedAt, sourceId: "attention-lens:notification", confidence: 0.95 });
@@ -71,4 +71,12 @@ test("new hypothesis evidence requests a versioned plan revision without changin
   assert.equal(revised.version, 2); assert.equal(revised.candidates.find((candidate) => candidate.id === "candidate-a")?.publishedArtifactId, "artifact-a");
   assert.throws(() => store.revise(plan.id, [{ ...revised.candidates[0], artifactHash: "tampered" }, revised.candidates[1]], "tamper", ["obs-c"]), /published artifact/);
   const reloaded = new VersionedPlanStore(join(dir, "plans.json")); assert.equal((await readFile(join(dir, "plans.json"), "utf8")).includes("candidate-b"), true); assert.equal(reloaded.get(plan.id)?.version, 2);
+});
+
+test("objective windows use local midnight across a DST transition", async () => {
+  const dir = await mkdtemp(join(process.cwd(), ".tmp-objectives-")); const ledger = new ObservationLedger(join(dir, "observations.json")); const ny = { ...objective, id: "obj-ny", window: { duration: "day" as const, timezone: "America/New_York" } }; const item = { ...observation("ny", 420, "cumulative_snapshot", "2026-03-08T16:00:00.000Z"), objectiveId: ny.id, period: { start: "2026-03-08T05:00:00.000Z", end: "2026-03-08T16:00:00.000Z" } }; ledger.record(item); const decision = new OutcomeController(ledger).decide(ny, { ...plan, objectiveId: ny.id }, new Date("2026-03-08T16:00:00.000Z")); assert.equal(decision.action, "release"); assert.match(decision.reason, /below target/);
+});
+
+test("live control requires durable reservation state and reserves before dispatch", async () => {
+  const dir = await mkdtemp(join(process.cwd(), ".tmp-objectives-")); const ledger = new ObservationLedger(join(dir, "observations.json")); const actions = new ActionLedger(join(dir, "actions.json")); ledger.record(observation("live", 10, "cumulative_snapshot")); const live = new OutcomeController(ledger, { mode: "live", actions }); const decision = live.decide(objective, plan, new Date("2026-10-18T12:30:00.000Z")); assert.equal(decision.action, "release"); assert.equal(actions.list(objective.id)[0].status, "reserved"); const restarted = new ActionLedger(join(dir, "actions.json")); assert.equal(restarted.list(objective.id)[0].status, "reserved"); assert.equal(live.decide(objective, plan, new Date("2026-10-18T12:31:00.000Z")).action, "hold");
 });
