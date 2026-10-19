@@ -34,7 +34,20 @@ test("smoke run executes the real API seam and saves a draft receipt without pub
   assert.equal(result.run.status, "completed");
   assert.equal(result.artifact.accepted, true);
   assert.equal(result.receiptPath, receiptPath);
-  const saved = JSON.parse(await readFile(receiptPath, "utf8")) as { receipt: { pricing: { inputCostPerTokenUsd: number; outputCostPerTokenUsd: number }; evaluation: { sixPs: { issues: string[] } } } };
+  const saved = JSON.parse(await readFile(receiptPath, "utf8")) as { receipt: { pricing: { inputCostPerTokenUsd: number; outputCostPerTokenUsd: number }; estimatedCostUsd: number; evaluation: { sixPs: { issues: string[] } } } };
   assert.equal(saved.receipt.pricing.inputCostPerTokenUsd, 0.001);
   assert.deepEqual(saved.receipt.evaluation.sixPs.issues, []);
+});
+
+test("rejected smoke receipts preserve model evidence and estimated pricing", async () => {
+  const directory = await mkdtemp(join(process.cwd(), ".tmp-smoke-"));
+  const receiptPath = join(directory, "rejected.json");
+  await assert.rejects(() => runSmoke({ receiptPath, apiKey: ["test", "key"].join("-"), endpoint: "https://model.test/v1", model: "test/model", inputCostPerTokenUsd: 0.001, outputCostPerTokenUsd: 0.002, transport: async () => new Response(JSON.stringify({ model: "test/model", choices: [{ message: { content: JSON.stringify({ hook: "A valid hook", body: "Generic body that deliberately omits the audience and brief language.", cta: "Read the notes", targetAction: "Read the public notes", destinationUrl: "https://github.com/leo-guinan/internet-factories" }) } }], usage: { prompt_tokens: 11, completion_tokens: 13, total_tokens: 24 } }), { status: 200 }) }), /no accepted artifact/);
+  const saved = JSON.parse(await readFile(receiptPath, "utf8")) as { receipt: { model: string; tokenUsage: { totalTokens: number }; latencyMs?: number; estimatedCostUsd: number; providerBilledCostUsd?: number; evaluation: { issues: string[] } } };
+  assert.equal(saved.receipt.model, "test/model");
+  assert.equal(saved.receipt.tokenUsage.totalTokens, 24);
+  assert.equal(typeof saved.receipt.latencyMs, "number");
+  assert.ok(Math.abs(saved.receipt.estimatedCostUsd - 0.037) < 1e-12);
+  assert.equal(saved.receipt.providerBilledCostUsd, undefined);
+  assert.ok(saved.receipt.evaluation.issues.length > 0);
 });

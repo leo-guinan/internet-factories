@@ -19,6 +19,13 @@ export interface SmokeResult {
   receiptPath: string;
 }
 
+export interface SmokeReceipt { runId: string; artifactId?: string; factoryId: string; status: string; quality: number; accepted: boolean; evaluation: ReturnType<typeof evaluateLinkedInDraft>; artifactHash?: string; model?: unknown; tokenUsage: { promptTokens?: unknown; completionTokens?: unknown; totalTokens?: unknown }; estimatedCostUsd: number; providerBilledCostUsd?: number; pricing: { inputCostPerTokenUsd: number; outputCostPerTokenUsd: number }; latencyMs?: number; publication: "disabled"; source: string; }
+
+export function buildSmokeReceipt(run: SmokeResult["run"], input: InsightInput, pricing: Pick<OpenAICompatibleOptions, "inputCostPerTokenUsd" | "outputCostPerTokenUsd">, artifact?: { artifact_id: string; sha256: string }): SmokeReceipt {
+  const node = run.nodeRuns[0];
+  return { runId: run.id, ...(artifact ? { artifactId: artifact.artifact_id, artifactHash: artifact.sha256 } : {}), factoryId: run.factoryId, status: run.status, quality: run.qualityScore ?? 0, accepted: run.status === "completed", evaluation: evaluateLinkedInDraft(input, run.output), model: node?.metadata?.model, tokenUsage: { promptTokens: node?.metadata?.promptTokens, completionTokens: node?.metadata?.completionTokens, totalTokens: node?.metadata?.totalTokens }, estimatedCostUsd: run.totalCostUsd, pricing: { inputCostPerTokenUsd: pricing.inputCostPerTokenUsd ?? 0, outputCostPerTokenUsd: pricing.outputCostPerTokenUsd ?? 0 }, latencyMs: run.finishedAt && run.startedAt ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime() : undefined, publication: "disabled", source: "public-safe-smoke-input" };
+}
+
 const sampleInsight: InsightInput = {
   insightId: "marvin-insight-factories-smoke-001",
   campaignId: "internet-factories-smoke",
@@ -53,15 +60,15 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     const stored = run.artifacts[0];
     if (!stored) {
       mkdirSync(dirname(options.receiptPath), { recursive: true });
-      const evaluation = evaluateLinkedInDraft(input, run.output);
-      writeFileSync(options.receiptPath, JSON.stringify({ receipt: { runId: run.id, factoryId: run.factoryId, status: run.status, quality: run.qualityScore ?? 0, accepted: false, evaluation, costUsd: run.totalCostUsd, pricing: { inputCostPerTokenUsd: options.inputCostPerTokenUsd ?? 0, outputCostPerTokenUsd: options.outputCostPerTokenUsd ?? 0 }, publication: "disabled", source: "public-safe-smoke-input" }, output: run.output }, null, 2));
+      const receipt = buildSmokeReceipt(run, input, options);
+      mkdirSync(dirname(options.receiptPath), { recursive: true });
+      writeFileSync(options.receiptPath, JSON.stringify({ receipt, output: run.output }, null, 2));
       throw new Error("smoke run produced no accepted artifact");
     }
     const artifact = server.getArtifact(stored.id);
     const content = server.getArtifactContent(stored.id);
     if (!artifact || content === undefined) throw new Error(`smoke artifact not readable: ${stored.id}`);
-    const evaluation = evaluateLinkedInDraft(input, content);
-    const receipt = { runId: run.id, artifactId: artifact.artifact_id, factoryId: run.factoryId, status: run.status, quality: run.qualityScore ?? 0, accepted: run.status === "completed", evaluation, artifactHash: artifact.sha256, model: run.nodeRuns[0]?.metadata?.model, tokenUsage: { promptTokens: run.nodeRuns[0]?.metadata?.promptTokens, completionTokens: run.nodeRuns[0]?.metadata?.completionTokens, totalTokens: run.nodeRuns[0]?.metadata?.totalTokens }, costUsd: run.totalCostUsd, pricing: { inputCostPerTokenUsd: options.inputCostPerTokenUsd ?? 0, outputCostPerTokenUsd: options.outputCostPerTokenUsd ?? 0 }, latencyMs: run.finishedAt && run.startedAt ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime() : undefined, publication: "disabled", source: "public-safe-smoke-input" };
+    const receipt = buildSmokeReceipt(run, input, options, artifact);
     mkdirSync(dirname(options.receiptPath), { recursive: true });
     writeFileSync(options.receiptPath, JSON.stringify({ receipt, output: content }, null, 2));
     return { published: false, run, artifact: { id: artifact.artifact_id, accepted: run.status === "completed", quality: run.qualityScore ?? 0, sha256: artifact.sha256, content }, receiptPath: options.receiptPath };
