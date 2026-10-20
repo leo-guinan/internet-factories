@@ -39,6 +39,8 @@ This is a contract boundary, not a marketplace or automatic trust system. Schema
 - `packages/runtime` — factory/function/run/node/artifact contracts and deterministic execution
 - `packages/manifest` — manifest contract boundary
 - `packages/meter` — metric formulas and raw measurement types
+- `packages/press` — press conferences for any factory: beats, configurable reporter personas, evidence-graded answers, scored commitments, hash-chained records (see `docs/press.md`)
+- `apps/press` — `pnpm press prep|hold|audit|demo`
 - `packages/scheduler` — scheduler boundary (not yet implemented)
 - `packages/database` — persistence boundary (not yet implemented)
 - `packages/adapters` — HTTP, LLM, code, shell, and nested-factory adapters (scaffold)

@@ -6,3 +6,8 @@ dist/
 .DS_Store
 artifacts/
 coverage/
+
+# press conference demo output
+data/press/demo/
+data/press/demo-ledger.json
+.tmp-press-*/
