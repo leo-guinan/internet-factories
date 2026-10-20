@@ -3,7 +3,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  auditRecord, defaultPressCorps, EvidenceIndex, gradeAnswer, holdForEveryFactory, holdPressConference, ledgerManager, loadPressCorps, PressLedger,
+  auditRecord, EvidenceIndex, gradeAnswer, holdForEveryFactory, holdPressConference, ledgerManager, loadPressCorps, PressLedger,
   preparePressConference, renderTranscript, scoreCommitments, scriptedManager, validateCommitment, validatePressCorps,
   type Commitment, type FactoryDossier, type FactoryManager, type PressRecord
 } from "../packages/press/src/index.js";
@@ -13,15 +13,15 @@ const commitment = (over: Partial<Commitment> = {}): Commitment => ({ id: "c1", 
 const withOpen = (dossier: FactoryDossier, open: Commitment[]): FactoryDossier => ({ ...dossier, previousRecord: { openCommitments: open, beats: [], id: "prs_prev", hash: "h" } as unknown as PressRecord });
 const period = { start: "2026-10-19T00:00:00.000Z", end: "2026-10-25T23:59:59.999Z" };
 const empty: FactoryDossier = { factoryId: "empty", managerId: "leo", period };
+const corps = loadPressCorps(join(process.cwd(), "tests/fixtures/press-corps.json"));
 
-test("default corps and its JSON config are valid and identical", () => {
-  assert.deepEqual(validatePressCorps(defaultPressCorps), []);
-  assert.deepEqual(loadPressCorps(join(process.cwd(), "packages/press/press-corps.json")), defaultPressCorps);
-  assert.deepEqual(defaultPressCorps.reporters.map((r) => r.name), ["Ari Chen", "Mara Quinn", "Darius Cole", "June Park", "Nia Brooks", "Graham Pike"]);
+test("a press corps is required and validated; the fixture corps is valid", async () => {
+  assert.deepEqual(validatePressCorps(corps), []);
+  await assert.rejects(preparePressConference(empty, { corps: { ...corps, reporters: [] } }), /at least one reporter/);
 });
 
 test("corps validation catches unknown reporters and lenses", () => {
-  const bad = { ...defaultPressCorps, reporters: [{ ...defaultPressCorps.reporters[0], lens: "vibes" as never }], beats: [{ id: "x", name: "x", kind: "questions" as const, minutes: 1, reporters: ["nobody"] }] };
+  const bad = { ...corps, reporters: [{ ...corps.reporters[0], lens: "vibes" as never }], beats: [{ id: "x", name: "x", kind: "questions" as const, minutes: 1, reporters: ["nobody"] }] };
   const errors = validatePressCorps(bad);
   assert.ok(errors.some((e) => /unknown lens/.test(e)));
   assert.ok(errors.some((e) => /unknown reporter nobody/.test(e)));
@@ -29,8 +29,8 @@ test("corps validation catches unknown reporters and lenses", () => {
 
 test("preparation is deterministic and every probe resolves in the dossier", async () => {
   const [dossier] = await demoWeek(1);
-  const a = await preparePressConference(dossier, { preparedAt: "x" });
-  const b = await preparePressConference(dossier, { preparedAt: "x" });
+  const a = await preparePressConference(dossier, { corps, preparedAt: "x" });
+  const b = await preparePressConference(dossier, { corps, preparedAt: "x" });
   assert.deepEqual(a.beats.map((x) => x.questions.map((q) => q.id)), b.beats.map((x) => x.questions.map((q) => q.id)));
   const index = new EvidenceIndex(dossier);
   for (const q of a.beats.flatMap((x) => x.questions)) for (const p of q.probes) assert.ok(index.has(p), `${q.id} probes missing ${p.kind}:${p.id}`);
@@ -38,14 +38,14 @@ test("preparation is deterministic and every probe resolves in the dossier", asy
 });
 
 test("a factory with nothing on its ledger still gets a full press conference", async () => {
-  const plan = await preparePressConference(empty);
+  const plan = await preparePressConference(empty, { corps });
   assert.ok(plan.beats.flatMap((b) => b.questions).length >= 6);
   assert.ok(plan.beats.flatMap((b) => b.questions).some((q) => /zero runs/.test(q.text)));
 });
 
 test("the lens questions find the failures, divergence and self-grading in a real run set", async () => {
   const [, research] = await demoWeek(1);
-  const text = (await preparePressConference(research)).beats.flatMap((b) => b.questions).map((q) => q.text).join("\n");
+  const text = (await preparePressConference(research, { corps })).beats.flatMap((b) => b.questions).map((q) => q.text).join("\n");
   assert.match(text, /upstream timeout/);
   assert.match(text, /rejected at quality 0.6/);
   assert.match(text, /different outputs/);
@@ -54,8 +54,8 @@ test("the lens questions find the failures, divergence and self-grading in a rea
 
 test("a phraser can reword questions but cannot change what they probe", async () => {
   const [dossier] = await demoWeek(1);
-  const plain = await preparePressConference(dossier, { preparedAt: "x" });
-  const loud = await preparePressConference(dossier, { preparedAt: "x", phrase: async (d) => d.text.toUpperCase() });
+  const plain = await preparePressConference(dossier, { corps, preparedAt: "x" });
+  const loud = await preparePressConference(dossier, { corps, preparedAt: "x", phrase: async (d) => d.text.toUpperCase() });
   const q0 = plain.beats[1].questions[0], q1 = loud.beats[1].questions[0];
   assert.equal(q1.text, q0.text.toUpperCase());
   assert.deepEqual(q1.probes, q0.probes);
@@ -104,23 +104,23 @@ test("commitments need a metric, a number and a future due date to be accountabl
 test("follow-ups: own reporter challenges, the skeptic covers reporters who can't, and repeated answers stop the chain", async () => {
   const [dossier] = await demoWeek(1);
   const stonewall: FactoryManager = { id: "m", name: "M", async answer() { return { text: "It went great.", claims: [] }; } };
-  const record = await holdPressConference(dossier, stonewall, { heldAt: "2026-10-19T13:00:00.000Z" });
+  const record = await holdPressConference(dossier, stonewall, { corps, heldAt: "2026-10-19T13:00:00.000Z" });
   const ex = record.beats.flatMap((b) => b.exchanges);
-  const ariFirst = ex.find((e) => e.reporterId === "ari" && !e.followupOf)!;
-  assert.ok(ex.some((e) => e.followupOf === ariFirst.id && e.reporterId === "ari"));
-  const juneFirst = ex.find((e) => e.reporterId === "june" && !e.followupOf)!;
+  const ariFirst = ex.find((e) => e.reporterId === "scoreboard" && !e.followupOf)!;
+  assert.ok(ex.some((e) => e.followupOf === ariFirst.id && e.reporterId === "scoreboard"));
+  const juneFirst = ex.find((e) => e.reporterId === "people" && !e.followupOf)!;
   const juneFollow = ex.filter((e) => e.followupOf === juneFirst.id);
-  assert.ok(juneFollow.length >= 1 && juneFollow.every((e) => e.reporterId === "graham"));
+  assert.ok(juneFollow.length >= 1 && juneFollow.every((e) => e.reporterId === "skeptic"));
   assert.ok(juneFollow.length < 2, "a repeated answer ends the follow-up chain");
   assert.equal(record.summary.documented, 0);
 });
 
 test("a scripted manager's answers are graded; unscripted questions fall back or are declined", async () => {
   const [dossier] = await demoWeek(1);
-  const plan = await preparePressConference(dossier, { preparedAt: "2026-10-19T13:00:00.000Z" });
+  const plan = await preparePressConference(dossier, { corps, preparedAt: "2026-10-19T13:00:00.000Z" });
   const q = plan.beats[1].questions[0];
   const scripted = scriptedManager({ id: "leo", name: "Leo" }, { answers: { [q.id]: { text: "It's on the board.", claims: [{ statement: "see probe", evidence: q.probes }] } } });
-  const record = await holdPressConference(dossier, scripted, { heldAt: "2026-10-19T13:00:00.000Z", plan });
+  const record = await holdPressConference(dossier, scripted, { corps, heldAt: "2026-10-19T13:00:00.000Z", plan });
   const ex = record.beats.flatMap((b) => b.exchanges);
   assert.equal(ex.find((e) => e.id === q.id)!.grade.status, "documented");
   assert.ok(ex.filter((e) => e.id !== q.id).every((e) => e.grade.status === "declined"));
@@ -130,10 +130,10 @@ test("two weeks in a row: commitments are scored, records chain, and the ledger 
   const dir = await mkdtemp(join(process.cwd(), ".tmp-press-"));
   const ledger = new PressLedger(join(dir, "ledger.json"));
   const [w1] = await demoWeek(1);
-  const r1 = ledger.append(await holdPressConference(w1, ledgerManager({ id: "leo", name: "Leo" }), { heldAt: "2026-10-19T13:00:00.000Z" }));
+  const r1 = ledger.append(await holdPressConference(w1, ledgerManager({ id: "leo", name: "Leo" }), { corps, heldAt: "2026-10-19T13:00:00.000Z" }));
   assert.equal(r1.openCommitments.length, 1);
   const [w2] = await demoWeek(2);
-  const r2 = await holdPressConference({ ...w2, previousRecord: ledger.latest(w2.factoryId) }, ledgerManager({ id: "leo", name: "Leo" }), { heldAt: "2026-10-26T13:00:00.000Z" });
+  const r2 = await holdPressConference({ ...w2, previousRecord: ledger.latest(w2.factoryId) }, ledgerManager({ id: "leo", name: "Leo" }), { corps, heldAt: "2026-10-26T13:00:00.000Z" });
   assert.equal(r2.scoreboard[0].status, "partial");
   assert.equal(r2.scoreboard[0].actual, 870);
   assert.equal(r2.previousRecordHash, r1.hash);
@@ -143,7 +143,7 @@ test("two weeks in a row: commitments are scored, records chain, and the ledger 
   assert.deepEqual(reloaded.verifyChain(w1.factoryId), [], "records still verify after a round-trip through disk");
   assert.equal(auditRecord(reloaded.latest(w1.factoryId)!, JSON.parse(JSON.stringify(w2))).ok, true, "evidence hashes match a dossier loaded from JSON");
   assert.equal(ledger.append(r2).hash, r2.hash, "re-appending is idempotent");
-  const fork = await holdPressConference({ ...w2, previousRecord: r1 }, ledgerManager({ id: "leo", name: "Leo" }), { heldAt: "2026-10-27T13:00:00.000Z" });
+  const fork = await holdPressConference({ ...w2, previousRecord: r1 }, ledgerManager({ id: "leo", name: "Leo" }), { corps, heldAt: "2026-10-27T13:00:00.000Z" });
   assert.throws(() => ledger.append(fork), /chain break/);
   assert.throws(() => ledger.append({ ...r2, summary: { ...r2.summary, documented: 99 } }), /hash does not match/);
   const saved = JSON.parse(await readFile(join(dir, "ledger.json"), "utf8")) as { records: PressRecord[] };
@@ -154,7 +154,7 @@ test("two weeks in a row: commitments are scored, records chain, and the ledger 
 
 test("audit flags evidence that changed or disappeared after it was cited", async () => {
   const [w2] = await demoWeek(2);
-  const record = await holdPressConference(w2, ledgerManager(), { heldAt: "2026-10-26T13:00:00.000Z" });
+  const record = await holdPressConference(w2, ledgerManager(), { corps, heldAt: "2026-10-26T13:00:00.000Z" });
   assert.equal(auditRecord(record, w2).ok, true);
   const edited = { ...w2, observations: w2.observations!.map((o) => (o.id === "obs-w2b" ? { ...o, value: 999 } : o)) };
   assert.deepEqual(auditRecord(record, edited).changed, [{ kind: "observation", id: "obs-w2b" }]);
@@ -164,8 +164,8 @@ test("audit flags evidence that changed or disappeared after it was cited", asyn
 });
 
 test("the same press conference runs across every factory", async () => {
-  const records = await holdForEveryFactory([...(await demoWeek(1)), empty], () => ledgerManager({ id: "leo", name: "Leo" }), { heldAt: "2026-10-19T13:00:00.000Z" });
+  const records = await holdForEveryFactory([...(await demoWeek(1)), empty], () => ledgerManager({ id: "leo", name: "Leo" }), { corps, heldAt: "2026-10-19T13:00:00.000Z" });
   assert.deepEqual(records.map((r) => r.factoryId), ["linkedin-draft", "research-factory", "empty"]);
-  for (const r of records) { assert.equal(r.beats.length, defaultPressCorps.beats.length); assert.match(renderTranscript(r), /## Final question/); }
+  for (const r of records) { assert.equal(r.beats.length, corps.beats.length); assert.match(renderTranscript(r), /## Final question/); }
   assert.ok(records[0].summary.documentedRate > records[2].summary.documentedRate, "an empty ledger can't document much");
 });

@@ -11,3 +11,4 @@ coverage/
 data/press/demo/
 data/press/demo-ledger.json
 .tmp-press-*/
+.tmp-studio-*/

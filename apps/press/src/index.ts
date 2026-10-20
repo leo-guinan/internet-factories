@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { auditRecord, defaultPressCorps, holdPressConference, ledgerManager, loadPressCorps, PressLedger, preparePressConference, renderTranscript, scriptedManager, type DraftAnswer, type FactoryDossier, type ManagerScript } from "../../../packages/press/src/index.js";
+import { assertPressCorps, auditRecord, holdPressConference, ledgerManager, PressLedger, preparePressConference, renderTranscript, scriptedManager, type DraftAnswer, type FactoryDossier, type ManagerScript } from "../../../packages/press/src/index.js";
+import { pressCorpsFromCard, type PressCorpsCard } from "../../../packages/studio/src/index.js";
+import type { PressCorps } from "../../../packages/press/src/index.js";
 import { demoWeek } from "./demo.js";
 
 const args = process.argv.slice(2);
@@ -9,7 +11,9 @@ const flag = (name: string) => { const i = args.indexOf(`--${name}`); return i >
 const has = (name: string) => args.includes(`--${name}`);
 const readJson = <T>(path: string) => JSON.parse(readFileSync(path, "utf8")) as T;
 const write = (path: string, body: string) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, body); };
-const corps = () => (flag("corps") ? loadPressCorps(flag("corps")!) : defaultPressCorps);
+/** Accepts a creator's press-corps@1 card (from Creator APIs) or a plain PressCorps file. */
+function loadCorps(path: string): PressCorps { const raw = readJson<PressCorps | PressCorpsCard>(path); return (raw as PressCorpsCard).schema === "press-corps@1" ? pressCorpsFromCard(raw as PressCorpsCard) : assertPressCorps(raw as PressCorps); }
+const corps = () => { const path = flag("corps"); if (!path) throw new Error("--corps is required: pass a press-corps@1 card from Creator APIs or a press corps JSON file"); return loadCorps(path); };
 const ledgerPath = () => flag("ledger") ?? "data/press/ledger.json";
 
 /** The ledger supplies the previous record automatically, so last week's commitments always come back. */
@@ -52,16 +56,17 @@ async function main() {
   }
   if (cmd === "demo") {
     const ledger = new PressLedger(flag("ledger") ?? "data/press/demo-ledger.json");
+    const demoCorps = loadCorps(flag("corps") ?? "tests/fixtures/press-corps.json");
     for (const [week, at] of [[1, "2026-10-19T13:00:00.000Z"], [2, "2026-10-26T13:00:00.000Z"]] as const) {
       for (const dossier of await demoWeek(week)) {
-        const record = ledger.append(await holdPressConference(withPrevious(dossier, ledger), ledgerManager({ id: "leo", name: "Leo" }), { heldAt: at }));
+        const record = ledger.append(await holdPressConference(withPrevious(dossier, ledger), ledgerManager({ id: "leo", name: "Leo" }), { corps: demoCorps, heldAt: at }));
         write(`data/press/demo/${dossier.factoryId}-week${week}.md`, renderTranscript(record));
         console.log(`week ${week} ${record.factoryName}: ${record.summary.documented}/${record.summary.questions} documented · scoreboard ${record.scoreboard.map((s) => s.status).join(",") || "none"} · chain ${ledger.verifyChain(dossier.factoryId).length ? "BROKEN" : "ok"}`);
       }
     }
     return;
   }
-  console.log("usage: press <prep|hold|audit|demo> --dossier file.json [--answers file.json] [--auto] [--corps file.json] [--ledger file.json] [--factory id] [--at iso]");
+  console.log("usage: press <prep|hold|audit|demo> --dossier file.json --corps press-corps.json [--answers file.json] [--auto] [--ledger file.json] [--factory id] [--at iso]");
   process.exitCode = 2;
 }
 

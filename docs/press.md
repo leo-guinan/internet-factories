@@ -13,33 +13,35 @@ dossier (runs, artifacts, objectives, observations, decisions, plans, external e
   → audit any time: re-hash the cited evidence against the current ledgers
 ```
 
+## Who asks: the press corps comes from the creator
+
+The cast and run of show are creator content and live in Creator APIs (`github.com/leo-guinan/creator-apis`, `creators/leo/press/`). A factory receives them as a `press-corps@1` card, built from portable `agent-card@1` reporters with the studio `create-press-corps` operation (see [`studio.md`](studio.md)). This repo keeps only a neutral fixture corps for tests and demos (`tests/fixtures/press-corps.json`).
+
 ## Beats
 
-Beats are the run of show (`packages/press/press-corps.json`). Each one has a `kind`:
+Each beat in the corps has a `kind`:
 
-| Beat | Kind | Default reporters | What happens |
-|---|---|---|---|
-| Opening statement | `statement` | none | Manager's statement, graded like any answer |
-| The scoreboard | `questions` | Ari | Last record's commitments, objective progress, yield |
-| The tough questions | `questions` | Darius, June, Graham | Unit cost, reach, self-grading, carried-over gaps |
-| Film-room breakdown | `questions` | Mara, Nia | Failures, rejections, controller decisions, reproducibility |
-| Next week's game plan | `commitments` | none | Manager commits; only measurable commitments are accountable |
-| Final question | `final` | Graham | "Which claim would you least want audited next week?" |
+| Kind | What happens |
+|---|---|
+| `statement` | Manager's opening statement, graded like any answer |
+| `questions` | Each listed reporter asks up to `questionsPerBeat` questions from their lens |
+| `commitments` | Manager commits; only measurable commitments are accountable |
+| `final` | "Which claim would you least want audited next week?" |
 
-## Reporters
+## Lenses: the questions are factory operations
 
-A reporter is a persona (config) on top of a lens (code). Recast by editing JSON. Lenses are fixed:
+A reporter is a persona (creator content) on top of a lens (code here). Lenses read factory evidence, so they stay in the factory:
 
-| Lens | Default | Looks at |
-|---|---|---|
-| `scoreboard` | Ari Chen | Prior commitments, objective progress vs target, yield |
-| `film` | Mara Quinn | Worst failed node, rejected runs, non-trivial controller decisions |
-| `business` | Darius Cole | Cost per accepted artifact, spend with no output, retries |
-| `people` | June Park | Whether accepted artifacts reached anyone, approvals, outside signal |
-| `reproducibility` | Nia Brooks | Same input with different outputs, sample size, reused results |
-| `skeptic` | Graham Pike | Self-graded quality, unmeasured commitments, last record's undocumented or contradicted answers |
+| Lens | Looks at |
+|---|---|
+| `scoreboard` | Prior commitments, objective progress vs target, yield |
+| `film` | Worst failed node, rejected runs, non-trivial controller decisions |
+| `business` | Cost per accepted artifact, spend with no output, retries |
+| `people` | Whether accepted artifacts reached anyone, approvals, outside signal |
+| `reproducibility` | Same input with different outputs, sample size, reused results |
+| `skeptic` | Self-graded quality, unmeasured commitments, last record's undocumented or contradicted answers |
 
-Lens assignments for the Character Bible v1 cast are read from the bible's dialogue. `rights.mayChallenge` lets a reporter follow up on their own question; `rights.challengesOthers` (Graham) lets them follow up on anyone's. A follow-up chain stops when the answer becomes documented, is declined, repeats itself, or the reporter runs out of follow-ups.
+`rights.mayChallenge` lets a reporter follow up on their own question; `rights.challengesOthers` lets them follow up on anyone's. A follow-up chain stops when the answer becomes documented, is declined, repeats itself, or the reporter runs out of follow-ups.
 
 A `phrase` hook can reword questions in a reporter's voice (an LLM, say). It changes wording only: question ids and evidence probes stay fixed, so the record stays checkable.
 
@@ -72,12 +74,14 @@ A commitment is accountable only with a metric, a numeric target, and a due date
 ## CLI
 
 ```bash
-pnpm press demo                                     # two weeks, two factories, chained records → data/press/demo/
-pnpm press prep --dossier dossier.json              # questions + an answers template keyed by question id
-pnpm press hold --dossier dossier.json --answers answers.json [--auto]   # --auto: ledger answers anything unscripted
-pnpm press hold --dossier dossier.json              # ledger manager answers everything
+pnpm press demo [--corps corps.json]                # two weeks, two factories, chained records → data/press/demo/
+pnpm press prep --dossier dossier.json --corps corps.json        # questions + an answers template keyed by question id
+pnpm press hold --dossier dossier.json --corps corps.json --answers answers.json [--auto]   # --auto: ledger answers anything unscripted
+pnpm press hold --dossier dossier.json --corps corps.json        # ledger manager answers everything
 pnpm press audit --factory linkedin-draft [--dossier dossier.json]
 ```
+
+`--corps` takes a `press-corps@1` card exported from Creator APIs, or a plain press corps JSON file.
 
 `hold` pulls the previous record from the ledger (`data/press/ledger.json` by default) when the dossier doesn't carry one, so last week's commitments always come back. Commit the ledger: git history is an outside timestamp on it.
 
