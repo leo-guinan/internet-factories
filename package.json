@@ -9,7 +9,8 @@
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc -b --pretty false",
     "validate": "pnpm typecheck && pnpm test",
-    "smoke": "tsx apps/smoke/src/index.ts"
+    "smoke": "tsx apps/smoke/src/index.ts",
+    "press": "tsx apps/press/src/index.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
