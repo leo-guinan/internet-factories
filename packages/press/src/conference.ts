@@ -1,7 +1,7 @@
 import { sha256Of } from "../../runtime/src/index.js";
 import { EvidenceIndex, metricFromEntry, observedValue, refKey, stableHash } from "./evidence.js";
 import { factoryFacts, finalQuestion, lenses, type LensContext } from "./lenses.js";
-import { defaultPressCorps } from "./corps.js";
+import { assertPressCorps } from "./corps.js";
 import type { AnswerGrade, BeatRecord, Commitment, CommitmentDraft, DraftAnswer, EvidenceRef, Exchange, FactoryDossier, FactoryManager, GradedClaim, ManagerContext, PreparedBeat, PreparedQuestion, PressCorps, PressPlan, PressRecord, QuestionDraft, ReporterPersona, ScoredCommitment } from "./types.js";
 
 export const MIN_CONFIDENCE = 0.8;
@@ -30,11 +30,11 @@ export function scoreCommitments(dossier: FactoryDossier): ScoredCommitment[] {
 // ---------------------------------------------------------------- prepare
 
 export type Phraser = (draft: QuestionDraft, persona: ReporterPersona, dossier: FactoryDossier) => Promise<string>;
-export interface PrepareOptions { corps?: PressCorps; preparedAt?: string; /** Optional rewording (e.g. an LLM in the reporter's voice). It may change wording only; probes stay fixed. */ phrase?: Phraser; }
+export interface PrepareOptions { /** Creator-supplied press corps (personas + run of show). */ corps: PressCorps; preparedAt?: string; /** Optional rewording (e.g. an LLM in the reporter's voice). It may change wording only; probes stay fixed. */ phrase?: Phraser; }
 
 /** Deterministic: the same dossier and corps always produce the same questions with the same ids, so answers can be written ahead of time. */
-export async function preparePressConference(dossier: FactoryDossier, options: PrepareOptions = {}): Promise<PressPlan> {
-  const corps = options.corps ?? defaultPressCorps;
+export async function preparePressConference(dossier: FactoryDossier, options: PrepareOptions): Promise<PressPlan> {
+  const corps = assertPressCorps(options.corps);
   const index = new EvidenceIndex(dossier);
   const scoreboard = scoreCommitments(dossier);
   const ctx: LensContext = { dossier, index, scoreboard, facts: factoryFacts(dossier) };
@@ -113,13 +113,13 @@ export function validateCommitment(draft: CommitmentDraft, heldAt: string, dossi
 
 // ---------------------------------------------------------------- hold
 
-export interface HoldOptions { heldAt?: string; corps?: PressCorps; plan?: PressPlan; }
+export interface HoldOptions { heldAt?: string; corps: PressCorps; plan?: PressPlan; }
 
 export function sealRecord(record: Omit<PressRecord, "hash">): PressRecord { const clean = JSON.parse(JSON.stringify(record)) as Omit<PressRecord, "hash">; return { ...clean, hash: stableHash(clean) }; }
 
 /** Runs every beat against a manager, grades every answer, asks follow-ups, takes commitments, and seals the record. */
-export async function holdPressConference(dossier: FactoryDossier, manager: FactoryManager, options: HoldOptions = {}): Promise<PressRecord> {
-  const corps = options.corps ?? defaultPressCorps;
+export async function holdPressConference(dossier: FactoryDossier, manager: FactoryManager, options: HoldOptions): Promise<PressRecord> {
+  const corps = assertPressCorps(options.corps);
   const heldAt = options.heldAt ?? new Date().toISOString();
   const plan = options.plan ?? await preparePressConference(dossier, { corps, preparedAt: heldAt });
   const index = new EvidenceIndex(dossier);
@@ -179,7 +179,7 @@ export async function holdPressConference(dossier: FactoryDossier, manager: Fact
 }
 
 /** Hold the same press conference for every factory in the network. */
-export async function holdForEveryFactory(dossiers: FactoryDossier[], managerFor: (dossier: FactoryDossier) => FactoryManager, options: HoldOptions = {}): Promise<PressRecord[]> {
+export async function holdForEveryFactory(dossiers: FactoryDossier[], managerFor: (dossier: FactoryDossier) => FactoryManager, options: HoldOptions): Promise<PressRecord[]> {
   const records: PressRecord[] = [];
   for (const dossier of dossiers) records.push(await holdPressConference(dossier, managerFor(dossier), { ...options, plan: undefined }));
   return records;

@@ -39,7 +39,8 @@ This is a contract boundary, not a marketplace or automatic trust system. Schema
 - `packages/runtime` — factory/function/run/node/artifact contracts and deterministic execution
 - `packages/manifest` — manifest contract boundary
 - `packages/meter` — metric formulas and raw measurement types
-- `packages/press` — press conferences for any factory: beats, configurable reporter personas, evidence-graded answers, scored commitments, hash-chained records (see `docs/press.md`)
+- `packages/press` — press conferences for any factory: evidence lenses, graded answers, scored commitments, hash-chained records; the corps (personas, run of show) is supplied by the creator (see `docs/press.md`)
+- `packages/studio` — creative operations: create a reporter, press corps, voice, image or story; portable agent cards; operation receipts with energy (see `docs/studio.md`)
 - `apps/press` — `pnpm press prep|hold|audit|demo`
 - `packages/scheduler` — scheduler boundary (not yet implemented)
 - `packages/database` — persistence boundary (not yet implemented)

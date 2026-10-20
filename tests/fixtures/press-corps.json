@@ -1,0 +1,20 @@
+{
+  "id": "fixture-corps",
+  "name": "Fixture press corps (neutral, for tests and demos)",
+  "reporters": [
+    { "id": "scoreboard", "name": "Scoreboard Reporter", "lens": "scoreboard", "theoryOfWinning": "The number moved against the named target.", "persona": "Reads the target, then the actual.", "rights": { "mayChallenge": true, "refusesUnevidencedWins": true }, "maxFollowups": 1, "questionsPerBeat": 3 },
+    { "id": "film", "name": "Film Room Reporter", "lens": "film", "theoryOfWinning": "The right call at the moment it mattered.", "persona": "Freezes the tape on one decision.", "rights": { "mayChallenge": true }, "maxFollowups": 1, "questionsPerBeat": 2 },
+    { "id": "business", "name": "Business Reporter", "lens": "business", "theoryOfWinning": "Output worth more than it cost.", "persona": "Prices everything.", "rights": { "mayChallenge": true }, "maxFollowups": 1, "questionsPerBeat": 2 },
+    { "id": "people", "name": "People Reporter", "lens": "people", "theoryOfWinning": "It reached a person.", "persona": "Asks who it was for.", "rights": { "mayChallenge": false }, "maxFollowups": 0, "questionsPerBeat": 2 },
+    { "id": "repro", "name": "Reproducibility Reporter", "lens": "reproducibility", "theoryOfWinning": "It happens again tomorrow.", "persona": "One run is a sample of one.", "rights": { "mayChallenge": true }, "maxFollowups": 1, "questionsPerBeat": 2 },
+    { "id": "skeptic", "name": "Skeptic Reporter", "lens": "skeptic", "theoryOfWinning": "Someone outside can check it.", "persona": "Accountable to reality.", "rights": { "mayChallenge": true, "challengesOthers": true, "refusesUnevidencedWins": true }, "maxFollowups": 2, "questionsPerBeat": 2 }
+  ],
+  "beats": [
+    { "id": "open", "name": "Opening statement", "kind": "statement", "minutes": 1, "reporters": [] },
+    { "id": "score", "name": "The scoreboard", "kind": "questions", "minutes": 3, "reporters": ["scoreboard"] },
+    { "id": "tough", "name": "The tough questions", "kind": "questions", "minutes": 5, "reporters": ["business", "people", "skeptic"] },
+    { "id": "film", "name": "Film-room breakdown", "kind": "questions", "minutes": 3, "reporters": ["film", "repro"] },
+    { "id": "plan", "name": "Next week's game plan", "kind": "commitments", "minutes": 2, "reporters": [] },
+    { "id": "final", "name": "Final question", "kind": "final", "minutes": 1, "reporters": ["skeptic"] }
+  ]
+}
