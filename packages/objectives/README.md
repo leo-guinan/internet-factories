@@ -6,8 +6,9 @@ It does not execute actions, publish to LinkedIn, forecast outcomes, or make pro
 
 Observation semantics:
 
+- `periodKind` is mandatory: `calendar_day_to_date` and `completed_day` are compatible with daily objectives; `calendar_week_to_date` and `completed_week` are compatible with weekly objectives; rolling and lifetime measurements are never substituted for calendar windows.
 - `cumulative_snapshot`: latest snapshot is authoritative; snapshots are never summed.
-- `window_total`: totals may be accumulated for the current evidence set.
+- `window_total`: overlapping totals use the latest compatible total rather than being added together.
 - `increment`: increments are accumulated after the latest cumulative snapshot.
 
 The controller treats missing, stale, or low-confidence evidence conservatively and returns `observe`. Decisions include the objective, plan version, evidence IDs, reason, and optional candidate ID.
