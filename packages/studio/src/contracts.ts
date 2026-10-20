@@ -27,7 +27,11 @@ export interface AssetRef {
   createdAt: string;
   /** The operation receipt that produced the asset. */
   receiptId?: string;
+  note?: string;
 }
+
+/** A named voice in an outside voice system (e.g. a Clipping Lab voice key). Not an asset: no bytes here. */
+export interface VoiceProfile { provider: string; key: string; note?: string; }
 
 export interface AgentCard {
   schema: "agent-card@1";
@@ -36,8 +40,9 @@ export interface AgentCard {
   name: string;
   title?: string;
   role: string;
-  persona: { summary: string; theoryOfWinning?: string; voiceDirection?: string };
+  persona: { summary: string; theoryOfWinning?: string; voiceDirection?: string; backstory?: string; questioningStyle?: string; beat?: string; signatureQuestion?: string };
   press?: { lens: LensId; rights: ReporterRights; maxFollowups?: number; questionsPerBeat?: number; color?: string };
+  voiceProfiles?: VoiceProfile[];
   assets?: { voices?: AssetRef[]; images?: AssetRef[] };
   origin: { creatorId: string; createdAt: string; source?: string };
   custody: CustodyHop[];

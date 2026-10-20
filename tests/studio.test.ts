@@ -124,3 +124,18 @@ test("create-story runs a creator template over a sealed record; highlights lead
   assert.deepEqual(draftStory(template, record), story);
   assert.throws(() => draftStory(template, { ...record, managerName: "Someone Else" }), /not a valid sealed record/);
 });
+
+test("cross-repo: the Creator APIs cast card and receipt verify here byte-for-byte", async () => {
+  const card = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/creator-apis.press-corps.json"), "utf8"));
+  for (const r of card.reporters as AgentCard[]) { assert.deepEqual(validateAgentCard(r), []); assert.equal(r.custody[0].cardSha256, cardHash(r), `${r.id} hash agrees across repos`); }
+  const corps = pressCorpsFromCard(card);
+  assert.deepEqual(corps.reporters.map((r) => [r.name, r.lens]), [["Ari Chen", "scoreboard"], ["Mara Quinn", "film"], ["Darius Cole", "business"], ["June Park", "people"], ["Nia Brooks", "reproducibility"], ["Graham Pike", "skeptic"]]);
+  assert.equal(corps.reporters[0].voice?.["clipping-lab"], "ari");
+  const ari = importAgent(moveAgent(card.reporters[0], "factory:presser", "leo", at), "presser");
+  assert.deepEqual(custodyChanges(ari).map((c) => c.changed), [false]);
+  const [dossier] = await demoWeek(1);
+  const record = await holdPressConference(dossier, ledgerManager(), { corps, heldAt: at });
+  assert.ok(record.beats.flatMap((b) => b.exchanges).some((e) => e.reporterName === "Graham Pike"));
+  const receipt = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/creator-apis.operation-receipt.json"), "utf8"));
+  assert.ok(receiptHashValid(receipt));
+});

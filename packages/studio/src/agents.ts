@@ -36,7 +36,7 @@ export function custodyChanges(card: AgentCard): Array<{ from: string; to: strin
 
 export function personaFromAgentCard(card: AgentCard): ReporterPersona {
   if (!card.press) throw new Error(`agent ${card.id} has no press block`);
-  return { id: card.id, name: card.name, title: card.title, lens: card.press.lens, theoryOfWinning: card.persona.theoryOfWinning ?? "", persona: card.persona.summary, color: card.press.color, rights: card.press.rights, maxFollowups: card.press.maxFollowups, questionsPerBeat: card.press.questionsPerBeat, voice: Object.fromEntries((card.assets?.voices ?? []).map((v) => [v.provider, v.providerRef ?? v.id])) };
+  return { id: card.id, name: card.name, title: card.title, lens: card.press.lens, theoryOfWinning: card.persona.theoryOfWinning ?? "", persona: card.persona.summary, color: card.press.color, rights: card.press.rights, maxFollowups: card.press.maxFollowups, questionsPerBeat: card.press.questionsPerBeat, voice: Object.fromEntries([...(card.voiceProfiles ?? []).map((v) => [v.provider, v.key]), ...(card.assets?.voices ?? []).map((v) => [`${v.provider}:take`, v.providerRef ?? v.id])]) };
 }
 
 export function pressCorpsFromCard(card: PressCorpsCard): PressCorps {
